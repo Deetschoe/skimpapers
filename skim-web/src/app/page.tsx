@@ -77,6 +77,13 @@ export default function LandingPage() {
         >
           we&apos;re open source
         </a>
+        <span style={{ margin: '0 12px', color: 'var(--border)' }}>|</span>
+        <a
+          href="mailto:dieter@serenidad.app"
+          style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}
+        >
+          need support? dieter@serenidad.app
+        </a>
       </footer>
     </div>
   );
