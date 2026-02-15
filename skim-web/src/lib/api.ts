@@ -122,7 +122,7 @@ async function request<T = unknown>(
   if (res.status === 401) {
     clearToken();
     if (typeof window !== 'undefined') {
-      window.location.href = '/signin';
+      window.location.href = '/login';
     }
     throw new Error('Unauthorized');
   }
@@ -160,6 +160,41 @@ export function put<T = unknown>(path: string, body?: unknown): Promise<T> {
 
 export function del<T = unknown>(path: string): Promise<T> {
   return request<T>('DELETE', path);
+}
+
+// ── Auth Helpers ───────────────────────────────────────────────────────────
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+export function checkEmail(email: string): Promise<{ status: string }> {
+  return post('/auth/check-email', { email });
+}
+
+export function signIn(email: string, password: string): Promise<AuthResponse> {
+  return post('/auth/signin', { email, password });
+}
+
+export function signUp(email: string, password: string, accessCode?: string): Promise<AuthResponse> {
+  return post('/auth/signup', { email, password, ...(accessCode ? { accessCode } : {}) });
+}
+
+export function joinWaitlist(email: string): Promise<{ success: boolean; message: string }> {
+  return post('/auth/join-waitlist', { email });
+}
+
+export function verifyAccessCode(code: string): Promise<{ valid: boolean; email: string | null }> {
+  return post('/auth/verify-access-code', { code });
+}
+
+export function forgotPassword(email: string): Promise<{ success: boolean }> {
+  return post('/auth/forgot-password', { email });
+}
+
+export function resetPassword(email: string, code: string, newPassword: string): Promise<{ success: boolean }> {
+  return post('/auth/reset-password', { email, code, newPassword });
 }
 
 const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del };

@@ -77,10 +77,10 @@ export default function LandingPage() {
           Research, distilled.
         </p>
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center' }}>
-          <a href="/signup" className="btn btn-primary btn-lg">
+          <a href="/login" className="btn btn-primary btn-lg">
             Get Started
           </a>
-          <a href="/signin" className="btn btn-ghost btn-lg">
+          <a href="/login" className="btn btn-ghost btn-lg">
             Sign In
           </a>
         </div>
