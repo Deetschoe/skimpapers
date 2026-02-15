@@ -1,20 +1,39 @@
 const express = require('express');
 const crypto = require('crypto');
-const bcrypt = require('bcrypt');
 const { getDb } = require('../db');
 const { generateToken, authMiddleware } = require('../middleware/auth');
+const { sendLoginCode } = require('../services/email');
 
 const router = express.Router();
 
-const SALT_ROUNDS = 12;
+const OTP_EXPIRY_MINUTES = 10;
+const SHARED_ACCESS_CODE = 'dieter';
 
-// POST /api/auth/signup
-router.post('/signup', async (req, res) => {
+// POST /api/auth/check-email
+router.post('/check-email', (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const db = getDb();
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
+
+    res.json({ exists: !!user });
+  } catch (err) {
+    console.error('Check email error:', err);
+    res.status(500).json({ error: 'Failed to check email' });
+  }
+});
+
+// POST /api/auth/request-code
+router.post('/request-code', async (req, res) => {
+  try {
+    const { email, accessCode } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -22,62 +41,78 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'Invalid email format' });
     }
 
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
-
     const db = getDb();
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
+    const normalizedEmail = email.toLowerCase();
+    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
 
-    if (existing) {
-      return res.status(409).json({ error: 'Email already registered' });
+    // New users must provide the shared access code
+    if (!existingUser) {
+      if (!accessCode || accessCode.toLowerCase() !== SHARED_ACCESS_CODE) {
+        return res.status(401).json({ error: 'Valid access code required for new accounts' });
+      }
     }
 
-    const id = crypto.randomUUID();
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const createdAt = new Date().toISOString();
+    // Invalidate previous unused OTPs for this email
+    db.prepare("UPDATE email_otps SET is_used = 1 WHERE email = ? AND is_used = 0").run(normalizedEmail);
 
-    db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
-      id,
-      email.toLowerCase(),
-      passwordHash,
-      createdAt
+    // Generate 6-digit code
+    const code = crypto.randomInt(100000, 999999).toString();
+    const id = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
+
+    db.prepare('INSERT INTO email_otps (id, email, code, expires_at) VALUES (?, ?, ?, ?)').run(
+      id, normalizedEmail, code, expiresAt
     );
 
-    const token = generateToken(id);
+    // Send code via email
+    sendLoginCode(normalizedEmail, code).catch(err =>
+      console.error('Failed to send login code:', err)
+    );
 
-    res.status(201).json({
-      user: { id, email: email.toLowerCase(), createdAt },
-      token,
-    });
+    res.json({ success: true });
   } catch (err) {
-    console.error('Signup error:', err);
-    res.status(500).json({ error: 'Failed to create account' });
+    console.error('Request code error:', err);
+    res.status(500).json({ error: 'Failed to send code' });
   }
 });
 
-// POST /api/auth/signin
-router.post('/signin', async (req, res) => {
+// POST /api/auth/verify-code
+router.post('/verify-code', (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, code } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email and code are required' });
     }
 
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+    const normalizedEmail = email.toLowerCase();
+
+    // Find valid OTP
+    const otp = db.prepare(
+      "SELECT * FROM email_otps WHERE email = ? AND code = ? AND is_used = 0 AND expires_at > datetime('now')"
+    ).get(normalizedEmail, code);
+
+    if (!otp) {
+      return res.status(401).json({ error: 'Invalid or expired code' });
+    }
+
+    // Mark OTP as used
+    db.prepare('UPDATE email_otps SET is_used = 1 WHERE id = ?').run(otp.id);
+
+    // Find or create user
+    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail);
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      const userId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, NULL, ?)').run(
+        userId, normalizedEmail, createdAt
+      );
+      user = { id: userId, email: normalizedEmail, created_at: createdAt };
     }
 
-    const valid = await bcrypt.compare(password, user.password_hash);
-
-    if (!valid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
+    // Generate JWT (30 days)
     const token = generateToken(user.id);
 
     res.json({
@@ -89,8 +124,8 @@ router.post('/signin', async (req, res) => {
       token,
     });
   } catch (err) {
-    console.error('Signin error:', err);
-    res.status(500).json({ error: 'Failed to sign in' });
+    console.error('Verify code error:', err);
+    res.status(500).json({ error: 'Failed to verify code' });
   }
 });
 

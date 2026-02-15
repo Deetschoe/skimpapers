@@ -169,32 +169,16 @@ export interface AuthResponse {
   token: string;
 }
 
-export function checkEmail(email: string): Promise<{ status: string }> {
+export function checkEmail(email: string): Promise<{ exists: boolean }> {
   return post('/auth/check-email', { email });
 }
 
-export function signIn(email: string, password: string): Promise<AuthResponse> {
-  return post('/auth/signin', { email, password });
+export function requestCode(email: string, accessCode?: string): Promise<{ success: boolean }> {
+  return post('/auth/request-code', { email, ...(accessCode ? { accessCode } : {}) });
 }
 
-export function signUp(email: string, password: string, accessCode?: string): Promise<AuthResponse> {
-  return post('/auth/signup', { email, password, ...(accessCode ? { accessCode } : {}) });
-}
-
-export function joinWaitlist(email: string): Promise<{ success: boolean; message: string }> {
-  return post('/auth/join-waitlist', { email });
-}
-
-export function verifyAccessCode(code: string): Promise<{ valid: boolean; email: string | null }> {
-  return post('/auth/verify-access-code', { code });
-}
-
-export function forgotPassword(email: string): Promise<{ success: boolean }> {
-  return post('/auth/forgot-password', { email });
-}
-
-export function resetPassword(email: string, code: string, newPassword: string): Promise<{ success: boolean }> {
-  return post('/auth/reset-password', { email, code, newPassword });
+export function verifyCode(email: string, code: string): Promise<AuthResponse> {
+  return post('/auth/verify-code', { email, code });
 }
 
 const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del };
