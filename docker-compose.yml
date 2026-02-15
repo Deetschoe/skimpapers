@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  skim-api:
+    build: ./skim-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - DATABASE_PATH=/data/skim.db
+      - FRONTEND_URL=${FRONTEND_URL}
+    volumes:
+      - skim-data:/data
+    restart: unless-stopped
+
+volumes:
+  skim-data:
