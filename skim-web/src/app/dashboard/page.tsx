@@ -40,6 +40,7 @@ interface SearchResult {
   title: string;
   authors: string[];
   url: string;
+  pdfUrl: string | null;
   source: string;
   publishedDate: string;
   abstract: string;
@@ -84,7 +85,7 @@ export default function DashboardPage() {
     }
   }, [fetchPapers]);
 
-  // Search arXiv
+  // Search papers (arXiv + PubMed)
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -92,10 +93,10 @@ export default function DashboardPage() {
     setSearchLoading(true);
     setShowSearchResults(true);
     try {
-      const data = await get<SearchResult[]>(
+      const data = await get<{ results: SearchResult[]; total: number }>(
         `/papers/search?q=${encodeURIComponent(searchQuery.trim())}`
       );
-      setSearchResults(data);
+      setSearchResults(data.results || []);
     } catch {
       setSearchResults([]);
     } finally {
@@ -276,7 +277,7 @@ export default function DashboardPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search arXiv for papers..."
+                placeholder="Search papers (arXiv, PubMed)..."
                 style={{
                   width: '100%',
                   padding: '14px 16px 14px 46px',
@@ -409,18 +410,31 @@ export default function DashboardPage() {
                         >
                           {result.title}
                         </p>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: '12px',
-                            color: colors.textSecondary,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {result.authors?.join(', ')}
-                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            color: result.source === 'pubmed' ? '#4D8570' : colors.accent,
+                            background: result.source === 'pubmed' ? 'rgba(77,133,112,0.1)' : 'rgba(199,91,56,0.1)',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                          }}>
+                            {result.source || 'arxiv'}
+                          </span>
+                          <p
+                            style={{
+                              margin: 0,
+                              fontSize: '12px',
+                              color: colors.textSecondary,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {result.authors?.join(', ')}
+                          </p>
+                        </div>
                       </div>
                     ))}
                   </>

@@ -20,6 +20,8 @@ router.use(authMiddleware);
 function detectSource(url) {
   if (url.includes('arxiv.org')) return 'arxiv';
   if (url.includes('pubmed') || url.includes('ncbi.nlm.nih.gov')) return 'pubmed';
+  if (url.includes('biorxiv.org')) return 'biorxiv';
+  if (url.includes('medrxiv.org')) return 'medrxiv';
   if (url.includes('archive.org')) return 'archive';
   if (url.includes('scholar.google')) return 'scholar';
   return 'other';
@@ -85,6 +87,90 @@ async function fetchArxivMetadata(arxivId) {
     abstract: (entry.summary || '').replace(/\s+/g, ' ').trim(),
     pdfUrl,
     publishedDate: published ? published.split('T')[0] : null,
+  };
+}
+
+/**
+ * Extract PubMed ID from URL.
+ */
+function extractPubmedId(url) {
+  const patterns = [
+    /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/,
+    /ncbi\.nlm\.nih\.gov\/pubmed\/(\d+)/,
+    /ncbi\.nlm\.nih\.gov\/pmc\/articles\/(PMC\d+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/**
+ * Fetch metadata from PubMed E-utilities API (free, no key needed).
+ */
+async function fetchPubmedMetadata(pmid) {
+  const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${pmid}&retmode=json`;
+  const response = await axios.get(summaryUrl, { timeout: 15000 });
+  const data = response.data;
+
+  const doc = data.result && data.result[pmid];
+  if (!doc) throw new Error('Paper not found on PubMed');
+
+  const authors = (doc.authors || []).map((a) => a.name);
+  const title = (doc.title || '').replace(/<[^>]+>/g, '').trim();
+  const publishedDate = doc.pubdate || null;
+
+  // Try to get abstract from efetch
+  let abstract = '';
+  try {
+    const abstractUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&rettype=abstract&retmode=text`;
+    const absResponse = await axios.get(abstractUrl, { timeout: 15000 });
+    abstract = typeof absResponse.data === 'string' ? absResponse.data.trim() : '';
+  } catch {
+    // abstract is optional
+  }
+
+  // Try PMC for free full-text PDF
+  let pdfUrl = null;
+  const pmcid = (doc.articleids || []).find((a) => a.idtype === 'pmc');
+  if (pmcid) {
+    pdfUrl = `https://www.ncbi.nlm.nih.gov/pmc/articles/${pmcid.value}/pdf/`;
+  }
+
+  return { title, authors, abstract, pdfUrl, publishedDate };
+}
+
+/**
+ * Extract bioRxiv/medRxiv DOI from URL.
+ */
+function extractBiorxivDoi(url) {
+  const match = url.match(/(?:bio|med)rxiv\.org\/content\/(10\.\d+\/[\d.]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Fetch metadata from bioRxiv/medRxiv API.
+ */
+async function fetchBiorxivMetadata(doi, server) {
+  const apiUrl = `https://api.biorxiv.org/details/${server}/10.1101/${doi.split('/').pop()}/na/json`;
+  const response = await axios.get(apiUrl, { timeout: 15000 });
+  const collection = response.data && response.data.collection;
+
+  if (!collection || collection.length === 0) {
+    throw new Error(`Paper not found on ${server}`);
+  }
+
+  const doc = collection[0];
+  const authors = (doc.authors || '').split(';').map((a) => a.trim()).filter(Boolean);
+  const pdfUrl = `https://www.${server}.org/content/${doi}v${doc.version || 1}.full.pdf`;
+
+  return {
+    title: doc.title || '',
+    authors,
+    abstract: doc.abstract || '',
+    pdfUrl,
+    publishedDate: doc.date || null,
   };
 }
 
@@ -288,21 +374,54 @@ router.post('/', async (req, res) => {
       if (!arxivId) {
         return res.status(400).json({ error: 'Could not extract arxiv paper ID from URL' });
       }
-
       const metadata = await fetchArxivMetadata(arxivId);
       title = metadata.title;
       authors = metadata.authors;
       abstract = metadata.abstract;
       pdfUrl = metadata.pdfUrl;
       publishedDate = metadata.publishedDate;
-    } else {
-      // For other sources, try to find a PDF URL
-      pdfUrl = await findPdfUrl(url);
-      if (!pdfUrl) {
-        return res.status(400).json({
-          error: 'Could not find a PDF link on this page. Try providing a direct PDF URL.',
-        });
+    } else if (source === 'pubmed') {
+      const pmid = extractPubmedId(url);
+      if (!pmid) {
+        return res.status(400).json({ error: 'Could not extract PubMed ID from URL' });
       }
+      const metadata = await fetchPubmedMetadata(pmid);
+      title = metadata.title;
+      authors = metadata.authors;
+      abstract = metadata.abstract;
+      pdfUrl = metadata.pdfUrl;
+      publishedDate = metadata.publishedDate;
+      // PubMed papers aren't always open-access, fall back to generic PDF finder
+      if (!pdfUrl) {
+        pdfUrl = await findPdfUrl(url);
+      }
+    } else if (source === 'biorxiv' || source === 'medrxiv') {
+      const doi = extractBiorxivDoi(url);
+      if (doi) {
+        try {
+          const server = source === 'biorxiv' ? 'biorxiv' : 'medrxiv';
+          const metadata = await fetchBiorxivMetadata(doi, server);
+          title = metadata.title;
+          authors = metadata.authors;
+          abstract = metadata.abstract;
+          pdfUrl = metadata.pdfUrl;
+          publishedDate = metadata.publishedDate;
+        } catch {
+          // Fall through to generic PDF finder
+          pdfUrl = await findPdfUrl(url);
+        }
+      } else {
+        pdfUrl = await findPdfUrl(url);
+      }
+    } else {
+      // For other sources (scholar, archive, generic), try to find a PDF URL
+      pdfUrl = await findPdfUrl(url);
+    }
+
+    if (!pdfUrl) {
+      return res.status(400).json({
+        error: 'Could not find a PDF link on this page. Try providing a direct PDF URL.',
+      });
     }
 
     // Step 5-7: Download PDF, extract text, convert to markdown
@@ -388,66 +507,137 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/papers/search - Search arXiv for papers
+// GET /api/papers/search - Search arXiv + PubMed for papers
 router.get('/search', async (req, res) => {
   try {
-    const { q, start = 0, max = 10 } = req.query;
+    const { q, start = 0, max = 10, source: sourceFilter } = req.query;
 
     if (!q) {
       return res.status(400).json({ error: 'Query parameter "q" is required' });
     }
 
-    const apiUrl = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(q)}&start=${start}&max_results=${max}&sortBy=relevance&sortOrder=descending`;
-    const response = await axios.get(apiUrl, { timeout: 15000 });
-    const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+    const maxNum = Math.min(parseInt(max, 10) || 10, 20);
 
-    const totalResults = parseInt(parsed.feed['opensearch:totalResults']._ || parsed.feed['opensearch:totalResults'], 10) || 0;
+    // Run arXiv and PubMed searches in parallel
+    const searches = [];
 
-    let entries = parsed.feed.entry;
-    if (!entries) {
-      return res.json({ results: [], total: 0 });
+    if (!sourceFilter || sourceFilter === 'arxiv' || sourceFilter === 'all') {
+      searches.push(searchArxiv(q, parseInt(start, 10) || 0, maxNum));
     }
-    if (!Array.isArray(entries)) {
-      entries = [entries];
+    if (!sourceFilter || sourceFilter === 'pubmed' || sourceFilter === 'all') {
+      searches.push(searchPubmed(q, parseInt(start, 10) || 0, maxNum));
     }
 
-    const results = entries.map((entry) => {
-      let authors = [];
-      if (entry.author) {
-        const authorList = Array.isArray(entry.author) ? entry.author : [entry.author];
-        authors = authorList.map((a) => a.name);
+    const settled = await Promise.allSettled(searches);
+    let allResults = [];
+    let totalCount = 0;
+
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        allResults = allResults.concat(result.value.results);
+        totalCount += result.value.total;
       }
+    }
 
-      let pdfUrl = null;
-      if (entry.link) {
-        const links = Array.isArray(entry.link) ? entry.link : [entry.link];
-        const pdfLink = links.find((l) => l.$ && l.$.title === 'pdf');
-        if (pdfLink) {
-          pdfUrl = pdfLink.$.href;
-          if (!pdfUrl.endsWith('.pdf')) pdfUrl += '.pdf';
-        }
-      }
-
-      const absUrl = entry.id || '';
-      const published = entry.published || entry.updated || null;
-
-      return {
-        title: (entry.title || '').replace(/\s+/g, ' ').trim(),
-        authors,
-        abstract: (entry.summary || '').replace(/\s+/g, ' ').trim(),
-        url: absUrl,
-        pdfUrl,
-        publishedDate: published ? published.split('T')[0] : null,
-        source: 'arxiv',
-      };
+    // Sort by date (newest first), then deduplicate by title similarity
+    allResults.sort((a, b) => {
+      if (a.publishedDate && b.publishedDate) return b.publishedDate.localeCompare(a.publishedDate);
+      if (a.publishedDate) return -1;
+      if (b.publishedDate) return 1;
+      return 0;
     });
 
-    res.json({ results, total: totalResults });
+    res.json({ results: allResults.slice(0, maxNum), total: totalCount });
   } catch (err) {
-    console.error('Error searching arXiv:', err);
-    res.status(500).json({ error: 'Failed to search arXiv' });
+    console.error('Error searching papers:', err);
+    res.status(500).json({ error: 'Failed to search papers' });
   }
 });
+
+/**
+ * Search arXiv API.
+ */
+async function searchArxiv(query, start, max) {
+  const apiUrl = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=${start}&max_results=${max}&sortBy=relevance&sortOrder=descending`;
+  const response = await axios.get(apiUrl, { timeout: 15000 });
+  const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+
+  const totalResults = parseInt(parsed.feed['opensearch:totalResults']._ || parsed.feed['opensearch:totalResults'], 10) || 0;
+
+  let entries = parsed.feed.entry;
+  if (!entries) return { results: [], total: 0 };
+  if (!Array.isArray(entries)) entries = [entries];
+
+  const results = entries.map((entry) => {
+    let authors = [];
+    if (entry.author) {
+      const authorList = Array.isArray(entry.author) ? entry.author : [entry.author];
+      authors = authorList.map((a) => a.name);
+    }
+
+    let pdfUrl = null;
+    if (entry.link) {
+      const links = Array.isArray(entry.link) ? entry.link : [entry.link];
+      const pdfLink = links.find((l) => l.$ && l.$.title === 'pdf');
+      if (pdfLink) {
+        pdfUrl = pdfLink.$.href;
+        if (!pdfUrl.endsWith('.pdf')) pdfUrl += '.pdf';
+      }
+    }
+
+    return {
+      title: (entry.title || '').replace(/\s+/g, ' ').trim(),
+      authors,
+      abstract: (entry.summary || '').replace(/\s+/g, ' ').trim(),
+      url: entry.id || '',
+      pdfUrl,
+      publishedDate: (entry.published || entry.updated || '').split('T')[0] || null,
+      source: 'arxiv',
+    };
+  });
+
+  return { results, total: totalResults };
+}
+
+/**
+ * Search PubMed E-utilities API (free, no key needed).
+ */
+async function searchPubmed(query, start, max) {
+  // Step 1: Search for IDs
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retstart=${start}&retmax=${max}&sort=relevance&retmode=json`;
+  const searchRes = await axios.get(searchUrl, { timeout: 15000 });
+  const searchData = searchRes.data;
+
+  const idList = searchData.esearchresult && searchData.esearchresult.idlist;
+  const totalCount = parseInt(searchData.esearchresult && searchData.esearchresult.count, 10) || 0;
+
+  if (!idList || idList.length === 0) return { results: [], total: 0 };
+
+  // Step 2: Fetch summaries for found IDs
+  const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${idList.join(',')}&retmode=json`;
+  const summaryRes = await axios.get(summaryUrl, { timeout: 15000 });
+  const summaryData = summaryRes.data;
+
+  const results = idList.map((pmid) => {
+    const doc = summaryData.result && summaryData.result[pmid];
+    if (!doc) return null;
+
+    const authors = (doc.authors || []).map((a) => a.name);
+    const title = (doc.title || '').replace(/<[^>]+>/g, '').trim();
+
+    return {
+      title,
+      authors,
+      abstract: doc.sorttitle || '',
+      url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+      pdfUrl: null,
+      publishedDate: doc.pubdate ? doc.pubdate.replace(/\s+/g, '-') : null,
+      source: 'pubmed',
+    };
+  }).filter(Boolean);
+
+  return { results, total: totalCount };
+}
 
 // GET /api/papers/:id - Get a single paper with full content
 router.get('/:id', (req, res) => {
