@@ -44,28 +44,11 @@ export default function LandingPage() {
             fontSize: 'clamp(1rem, 2.5vw, 1.25rem)',
             color: 'var(--text-secondary)',
             fontWeight: 400,
-            marginBottom: '40px',
+            marginBottom: '48px',
           }}
         >
-          Research, distilled &mdash; all in one app.
+          research distilled all in one app
         </p>
-
-        <ul
-          style={{
-            listStyle: 'none',
-            padding: 0,
-            margin: '0 0 48px 0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            fontSize: '15px',
-            color: 'var(--text-secondary)',
-          }}
-        >
-          <li>Search and save research papers</li>
-          <li>Upload PDFs and read on the go</li>
-          <li>Open source &mdash; web and iOS</li>
-        </ul>
 
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center' }}>
           <a href="/login" className="btn btn-primary btn-lg">
@@ -86,7 +69,14 @@ export default function LandingPage() {
           borderTop: '1px solid var(--border)',
         }}
       >
-        skim &mdash; open source research reader
+        <a
+          href="https://github.com/Deetschoe/skimpapers"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}
+        >
+          we&apos;re open source
+        </a>
       </footer>
     </div>
   );
