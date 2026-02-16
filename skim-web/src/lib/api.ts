@@ -1,7 +1,7 @@
 // Skim API Client
 // Handles all communication with the backend API
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+const BASE_URL = '/api';
 
 const TOKEN_KEY = 'skim_token';
 const USER_KEY = 'skim_user';
