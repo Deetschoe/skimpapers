@@ -16,8 +16,8 @@ struct SettingsView: View {
                         // Profile
                         profileSection
 
-                        // Appearance
-                        appearanceSection
+                        // Reading
+                        readingSection
 
                         // AI Features
                         aiFeaturesSection
@@ -98,26 +98,45 @@ struct SettingsView: View {
         )
     }
 
-    // MARK: - Appearance Section
+    // MARK: - Reading Section
 
-    private var appearanceSection: some View {
+    private var readingSection: some View {
         VStack(alignment: .leading, spacing: SkimTheme.paddingMedium) {
-            Label("Appearance", systemImage: "paintbrush.fill")
+            Label("Reading", systemImage: "textformat.size")
                 .font(SkimTheme.subheadingFont)
                 .foregroundColor(SkimTheme.textPrimary)
                 .padding(.bottom, 4)
 
-            toggleRow(
-                icon: "moon.fill",
-                label: "Dark Mode",
-                isOn: Binding(
-                    get: { appState.isDarkMode },
-                    set: { newValue in
-                        appState.isDarkMode = newValue
-                        appState.saveSetting("darkMode", value: newValue)
-                    }
-                )
-            )
+            // Text size slider
+            VStack(spacing: 10) {
+                HStack {
+                    Image(systemName: "textformat.size.smaller")
+                        .font(.system(size: 14))
+                        .foregroundColor(SkimTheme.textTertiary)
+
+                    Slider(
+                        value: Binding(
+                            get: { appState.textSizeMultiplier },
+                            set: { newValue in
+                                appState.textSizeMultiplier = newValue
+                                appState.saveSetting("textSize", value: newValue)
+                            }
+                        ),
+                        in: 0.8...1.4,
+                        step: 0.1
+                    )
+                    .tint(SkimTheme.accent)
+
+                    Image(systemName: "textformat.size.larger")
+                        .font(.system(size: 18))
+                        .foregroundColor(SkimTheme.textTertiary)
+                }
+
+                Text("Text Size: \(Int(appState.textSizeMultiplier * 100))%")
+                    .font(SkimTheme.captionFont)
+                    .foregroundColor(SkimTheme.textTertiary)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(SkimTheme.paddingMedium)
         .background(
@@ -376,7 +395,6 @@ struct SettingsView: View {
     }
 
     private func formattedPeriod(_ usage: UsageInfo) -> String? {
-        // periodStart/periodEnd are ISO strings from backend
         let iso = ISO8601DateFormatter()
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMM d"

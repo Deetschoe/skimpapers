@@ -29,9 +29,19 @@ function createTables() {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
-      password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS login_codes (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      is_used INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_login_codes_email ON login_codes(email);
 
     CREATE TABLE IF NOT EXISTS papers (
       id TEXT PRIMARY KEY,
@@ -103,72 +113,7 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_collections_user_id ON collections(user_id);
     CREATE INDEX IF NOT EXISTS idx_collection_papers_collection ON collection_papers(collection_id);
     CREATE INDEX IF NOT EXISTS idx_collection_papers_paper ON collection_papers(paper_id);
-
-    CREATE TABLE IF NOT EXISTS waitlist (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS access_codes (
-      id TEXT PRIMARY KEY,
-      code TEXT UNIQUE NOT NULL,
-      email TEXT,
-      is_used INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS password_resets (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      code TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      is_used INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS email_otps (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL,
-      code TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      is_used INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_access_codes_code ON access_codes(code);
-    CREATE INDEX IF NOT EXISTS idx_access_codes_email ON access_codes(email);
-    CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
-    CREATE INDEX IF NOT EXISTS idx_waitlist_email ON waitlist(email);
-    CREATE INDEX IF NOT EXISTS idx_email_otps_email ON email_otps(email);
-    CREATE INDEX IF NOT EXISTS idx_email_otps_code ON email_otps(code);
   `);
-
-  // Seed the shared access code
-  db.prepare("INSERT OR IGNORE INTO access_codes (id, code, email, is_used) VALUES (?, ?, NULL, 0)")
-    .run('shared-access-code-dieter', 'dieter');
-
-  // Migration: make password_hash nullable for existing DBs
-  try {
-    const tableInfo = db.pragma('table_info(users)');
-    const pwCol = tableInfo.find(col => col.name === 'password_hash');
-    if (pwCol && pwCol.notnull === 1) {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS users_new (
-          id TEXT PRIMARY KEY,
-          email TEXT UNIQUE NOT NULL,
-          password_hash TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        INSERT OR IGNORE INTO users_new SELECT * FROM users;
-        DROP TABLE users;
-        ALTER TABLE users_new RENAME TO users;
-      `);
-    }
-  } catch (e) {
-    // Migration already done or not needed
-  }
 }
 
 function close() {

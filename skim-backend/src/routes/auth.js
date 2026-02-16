@@ -6,8 +6,8 @@ const { sendLoginCode } = require('../services/email');
 
 const router = express.Router();
 
-const OTP_EXPIRY_MINUTES = 10;
-const SHARED_ACCESS_CODE = 'dieter';
+const CODE_EXPIRY_MINUTES = 15;
+const VALID_ACCESS_CODE = 'dieter';
 
 // POST /api/auth/check-email
 router.post('/check-email', (req, res) => {
@@ -45,22 +45,22 @@ router.post('/request-code', async (req, res) => {
     const normalizedEmail = email.toLowerCase();
     const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
 
-    // New users must provide the shared access code
+    // New users must provide the valid access code
     if (!existingUser) {
-      if (!accessCode || accessCode.toLowerCase() !== SHARED_ACCESS_CODE) {
-        return res.status(401).json({ error: 'Valid access code required for new accounts' });
+      if (!accessCode || accessCode.toLowerCase() !== VALID_ACCESS_CODE) {
+        return res.status(401).json({ error: 'Invalid access code' });
       }
     }
 
-    // Invalidate previous unused OTPs for this email
-    db.prepare("UPDATE email_otps SET is_used = 1 WHERE email = ? AND is_used = 0").run(normalizedEmail);
+    // Invalidate previous unused codes for this email
+    db.prepare('UPDATE login_codes SET is_used = 1 WHERE email = ? AND is_used = 0').run(normalizedEmail);
 
     // Generate 6-digit code
     const code = crypto.randomInt(100000, 999999).toString();
     const id = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
 
-    db.prepare('INSERT INTO email_otps (id, email, code, expires_at) VALUES (?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO login_codes (id, email, code, expires_at) VALUES (?, ?, ?, ?)').run(
       id, normalizedEmail, code, expiresAt
     );
 
@@ -88,25 +88,25 @@ router.post('/verify-code', (req, res) => {
     const db = getDb();
     const normalizedEmail = email.toLowerCase();
 
-    // Find valid OTP
-    const otp = db.prepare(
-      "SELECT * FROM email_otps WHERE email = ? AND code = ? AND is_used = 0 AND expires_at > datetime('now')"
+    // Find valid login code
+    const loginCode = db.prepare(
+      "SELECT * FROM login_codes WHERE email = ? AND code = ? AND is_used = 0 AND expires_at > datetime('now')"
     ).get(normalizedEmail, code);
 
-    if (!otp) {
+    if (!loginCode) {
       return res.status(401).json({ error: 'Invalid or expired code' });
     }
 
-    // Mark OTP as used
-    db.prepare('UPDATE email_otps SET is_used = 1 WHERE id = ?').run(otp.id);
+    // Mark code as used
+    db.prepare('UPDATE login_codes SET is_used = 1 WHERE id = ?').run(loginCode.id);
 
     // Find or create user
-    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail);
+    let user = db.prepare('SELECT id, email, created_at FROM users WHERE email = ?').get(normalizedEmail);
 
     if (!user) {
       const userId = crypto.randomUUID();
       const createdAt = new Date().toISOString();
-      db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, NULL, ?)').run(
+      db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').run(
         userId, normalizedEmail, createdAt
       );
       user = { id: userId, email: normalizedEmail, created_at: createdAt };

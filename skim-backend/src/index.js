@@ -6,6 +6,7 @@ const { getDb, close } = require('./db');
 const authRoutes = require('./routes/auth');
 const papersRoutes = require('./routes/papers');
 const collectionsRoutes = require('./routes/collections');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +30,7 @@ app.get('/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/papers', papersRoutes);
 app.use('/api/collections', collectionsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Global error handler
 app.use((err, _req, res, _next) => {

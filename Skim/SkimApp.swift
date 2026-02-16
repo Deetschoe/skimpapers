@@ -8,7 +8,6 @@ struct SkimApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .preferredColorScheme(appState.isDarkMode ? .dark : .light)
         }
     }
 }

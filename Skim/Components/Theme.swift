@@ -1,17 +1,55 @@
 import SwiftUI
 
 enum SkimTheme {
-    // Paper-like light palette
-    static let background = Color(red: 0.98, green: 0.975, blue: 0.96)   // Warm cream
-    static let surface = Color.white
-    static let surfaceElevated = Color(red: 0.96, green: 0.95, blue: 0.93) // Warm off-white
-    static let accent = Color(red: 0.78, green: 0.36, blue: 0.22)         // Warm terracotta/rust
+    // Adaptive colors — auto-switch between light and dark based on iOS system setting
+    static let background = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.10, green: 0.09, blue: 0.08, alpha: 1)
+            : UIColor(red: 0.98, green: 0.975, blue: 0.96, alpha: 1)
+    })
+
+    static let surface = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.16, green: 0.15, blue: 0.14, alpha: 1)
+            : UIColor.white
+    })
+
+    static let surfaceElevated = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.20, green: 0.19, blue: 0.18, alpha: 1)
+            : UIColor(red: 0.96, green: 0.95, blue: 0.93, alpha: 1)
+    })
+
+    // Accent colors stay the same in both modes
+    static let accent = Color(red: 0.78, green: 0.36, blue: 0.22)         // Terracotta
     static let accentSecondary = Color(red: 0.30, green: 0.52, blue: 0.44) // Sage green
-    static let textPrimary = Color(red: 0.10, green: 0.10, blue: 0.10)    // Near-black
-    static let textSecondary = Color(red: 0.40, green: 0.40, blue: 0.40)
-    static let textTertiary = Color(red: 0.62, green: 0.62, blue: 0.60)
+
+    static let textPrimary = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.93, green: 0.92, blue: 0.90, alpha: 1)
+            : UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1)
+    })
+
+    static let textSecondary = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.70, green: 0.69, blue: 0.67, alpha: 1)
+            : UIColor(red: 0.40, green: 0.40, blue: 0.40, alpha: 1)
+    })
+
+    static let textTertiary = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.50, green: 0.49, blue: 0.47, alpha: 1)
+            : UIColor(red: 0.62, green: 0.62, blue: 0.60, alpha: 1)
+    })
+
     static let destructive = Color(red: 0.85, green: 0.25, blue: 0.20)
-    static let border = Color(red: 0.88, green: 0.87, blue: 0.84)
+
+    static let border = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.28, green: 0.27, blue: 0.25, alpha: 1)
+            : UIColor(red: 0.88, green: 0.87, blue: 0.84, alpha: 1)
+    })
+
     static let ratingGreen = Color(red: 0.22, green: 0.65, blue: 0.40)
     static let ratingYellow = Color(red: 0.82, green: 0.65, blue: 0.15)
     static let ratingRed = Color(red: 0.85, green: 0.25, blue: 0.20)

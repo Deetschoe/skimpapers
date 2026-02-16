@@ -17,9 +17,9 @@ class AppState: ObservableObject {
     @Published var searchText = ""
     @Published var selectedCategory: PaperCategory?
     @Published var usage: UsageInfo?
-    @Published var isDarkMode = false
     @Published var aiEnabled = true
     @Published var autoSummarize = true
+    @Published var textSizeMultiplier: Double = 1.0
 
     // Reading history: paper ID -> last read date
     @Published var readingHistory: [String: Date] = [:]
@@ -94,26 +94,14 @@ class AppState: ObservableObject {
 
     // MARK: - Auth
 
-    func signIn(email: String, password: String) async throws {
+    func authenticate(email: String, code: String) async throws {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        let user = try await api.signIn(email: email, password: password)
+        let user = try await api.verifyCode(email: email, code: code)
         KeychainService.saveToken(user.token)
         currentUser = user
         await loadPapers()
-        withAnimation(.easeInOut(duration: 0.4)) {
-            currentScreen = .home
-        }
-    }
-
-    func signUp(email: String, password: String) async throws {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        let user = try await api.signUp(email: email, password: password)
-        KeychainService.saveToken(user.token)
-        currentUser = user
         withAnimation(.easeInOut(duration: 0.4)) {
             currentScreen = .home
         }
@@ -251,9 +239,9 @@ class AppState: ObservableObject {
         }
 
         // Settings
-        isDarkMode = UserDefaults.standard.object(forKey: settingsPrefix + "darkMode") as? Bool ?? true
         aiEnabled = UserDefaults.standard.object(forKey: settingsPrefix + "aiEnabled") as? Bool ?? true
         autoSummarize = UserDefaults.standard.object(forKey: settingsPrefix + "autoSummarize") as? Bool ?? true
+        textSizeMultiplier = UserDefaults.standard.object(forKey: settingsPrefix + "textSize") as? Double ?? 1.0
     }
 
     private func saveCollections() {
@@ -269,6 +257,10 @@ class AppState: ObservableObject {
     }
 
     func saveSetting(_ key: String, value: Bool) {
+        UserDefaults.standard.set(value, forKey: settingsPrefix + key)
+    }
+
+    func saveSetting(_ key: String, value: Double) {
         UserDefaults.standard.set(value, forKey: settingsPrefix + key)
     }
 }

@@ -20,16 +20,26 @@ final class APIService {
 
     // MARK: - Auth
 
-    func signIn(email: String, password: String) async throws -> SkimUser {
-        let body: [String: String] = ["email": email, "password": password]
-        let request = try buildRequest(path: "/auth/signin", method: "POST", body: body)
-        let authResponse: AuthResponse = try await perform(request)
-        return authResponse.skimUser
+    func checkEmail(email: String) async throws -> Bool {
+        let body: [String: String] = ["email": email]
+        let request = try buildRequest(path: "/auth/check-email", method: "POST", body: body)
+        let response: CheckEmailExistsResponse = try await perform(request)
+        return response.exists
     }
 
-    func signUp(email: String, password: String) async throws -> SkimUser {
-        let body: [String: String] = ["email": email, "password": password]
-        let request = try buildRequest(path: "/auth/signup", method: "POST", body: body)
+    func requestCode(email: String, accessCode: String? = nil) async throws {
+        var body: [String: String] = ["email": email]
+        if let code = accessCode {
+            body["accessCode"] = code
+        }
+        let request = try buildRequest(path: "/auth/request-code", method: "POST", body: body)
+        let (_, response) = try await session.data(for: request)
+        try validateResponse(response)
+    }
+
+    func verifyCode(email: String, code: String) async throws -> SkimUser {
+        let body: [String: String] = ["email": email, "code": code]
+        let request = try buildRequest(path: "/auth/verify-code", method: "POST", body: body)
         let authResponse: AuthResponse = try await perform(request)
         return authResponse.skimUser
     }
@@ -168,6 +178,12 @@ final class APIService {
             throw SkimError.serverError("Server returned status \(http.statusCode)")
         }
     }
+}
+
+// MARK: - Auth Response Types
+
+struct CheckEmailExistsResponse: Codable {
+    let exists: Bool
 }
 
 // MARK: - Type-erased Encodable wrapper
