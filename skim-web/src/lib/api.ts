@@ -120,11 +120,17 @@ async function request<T = unknown>(
   });
 
   if (res.status === 401) {
-    clearToken();
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
+    const isAuthEndpoint = path.startsWith('/auth/');
+    if (!isAuthEndpoint) {
+      clearToken();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
-    throw new Error('Unauthorized');
+    const errorBody = await res.json().catch(() => ({}));
+    const message =
+      (errorBody as { error?: string }).error || 'Unauthorized';
+    throw new Error(message);
   }
 
   if (!res.ok) {

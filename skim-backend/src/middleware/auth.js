@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
 const { getDb } = require('../db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'change-this-to-a-secure-random-string' || JWT_SECRET === 'dev-secret-change-me') {
+  console.error('FATAL: JWT_SECRET is not set or is using a placeholder value.');
+  console.error('Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'base64url\'))"');
+  process.exit(1);
+}
 
 function generateToken(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });

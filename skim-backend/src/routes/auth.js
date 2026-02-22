@@ -7,7 +7,10 @@ const { sendLoginCode } = require('../services/email');
 const router = express.Router();
 
 const CODE_EXPIRY_MINUTES = 15;
-const VALID_ACCESS_CODE = 'dieter';
+const VALID_ACCESS_CODE = process.env.ACCESS_CODE || '';
+if (!VALID_ACCESS_CODE) {
+  console.warn('WARNING: ACCESS_CODE not set — new user registration will be blocked');
+}
 
 // POST /api/auth/check-email
 router.post('/check-email', (req, res) => {
@@ -58,16 +61,20 @@ router.post('/request-code', async (req, res) => {
     // Generate 6-digit code
     const code = crypto.randomInt(100000, 999999).toString();
     const id = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000)
+      .toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 
     db.prepare('INSERT INTO login_codes (id, email, code, expires_at) VALUES (?, ?, ?, ?)').run(
       id, normalizedEmail, code, expiresAt
     );
 
     // Send code via email
-    sendLoginCode(normalizedEmail, code).catch(err =>
-      console.error('Failed to send login code:', err)
-    );
+    try {
+      await sendLoginCode(normalizedEmail, code);
+    } catch (emailErr) {
+      console.error('Failed to send login code:', emailErr);
+      return res.status(502).json({ error: 'Failed to send login code. Please try again.' });
+    }
 
     res.json({ success: true });
   } catch (err) {
