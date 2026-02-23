@@ -8,7 +8,7 @@ import {
 } from '@/lib/api';
 import type { AuthResponse } from '@/lib/api';
 
-type Step = 'email' | 'access-code' | 'verify-code';
+type Step = 'access-code' | 'email' | 'verify-code';
 
 const colors = {
   background: '#FAF9F5',
@@ -24,10 +24,10 @@ const colors = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('email');
+  const [step, setStep] = useState<Step>('access-code');
   const [email, setEmail] = useState('');
   const [accessCodeInput, setAccessCodeInput] = useState('');
-  const [isNewUser, setIsNewUser] = useState(false);
+  const [hasAccessCode, setHasAccessCode] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
@@ -53,7 +53,15 @@ export default function LoginPage() {
     router.push('/dashboard');
   }
 
-  // Step 1: Email
+  // Step 1: Access code (first screen for everyone)
+  function handleAccessCodeSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessCodeInput.trim()) return;
+    setHasAccessCode(true);
+    goTo('email');
+  }
+
+  // Step 2: Email (sends OTP code)
   async function handleEmailSubmit(e: FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
@@ -61,32 +69,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { exists } = await checkEmail(email.trim().toLowerCase());
-      if (exists) {
-        setIsNewUser(false);
-        await requestCode(email.trim().toLowerCase());
-        goTo('verify-code');
-      } else {
-        setIsNewUser(true);
-        goTo('access-code');
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Step 1b: Access code (new users)
-  async function handleAccessCodeSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!accessCodeInput.trim()) return;
-    setError('');
-    setLoading(true);
-    try {
-      await requestCode(email.trim().toLowerCase(), accessCodeInput.trim());
+      // Pass access code for new users, omit for existing users
+      await requestCode(email.trim().toLowerCase(), exists ? undefined : accessCodeInput.trim());
       goTo('verify-code');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid access code');
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -113,7 +100,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await requestCode(email.trim().toLowerCase(), isNewUser ? accessCodeInput.trim() : undefined);
+      await requestCode(email.trim().toLowerCase(), hasAccessCode ? accessCodeInput.trim() : undefined);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to resend');
@@ -204,10 +191,10 @@ export default function LoginPage() {
         return (
           <form onSubmit={handleEmailSubmit}>
             <h2 style={{ fontSize: '22px', fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>
-              Welcome to skim
+              Enter your email
             </h2>
             <p style={{ color: colors.textSecondary, fontSize: '15px', textAlign: 'center', marginBottom: '28px' }}>
-              Enter your email to continue
+              We&apos;ll send you a login code
             </p>
             {error && <ErrorBanner message={error} />}
             <div style={{ marginBottom: '16px' }}>
@@ -224,6 +211,9 @@ export default function LoginPage() {
               />
             </div>
             <PrimaryButton loading={loading} text="Continue" />
+            <div style={{ marginTop: '16px' }}>
+              <BackLink onClick={() => goTo('access-code', 'back')} />
+            </div>
           </form>
         );
 
@@ -231,10 +221,10 @@ export default function LoginPage() {
         return (
           <form onSubmit={handleAccessCodeSubmit}>
             <h2 style={{ fontSize: '22px', fontWeight: 600, marginBottom: '6px', textAlign: 'center' }}>
-              Access code required
+              Welcome to skim
             </h2>
             <p style={{ color: colors.textSecondary, fontSize: '14px', textAlign: 'center', marginBottom: '28px' }}>
-              Enter the invite code to get started
+              Enter your invite code to get started
             </p>
             {error && <ErrorBanner message={error} />}
             <div style={{ marginBottom: '16px' }}>
@@ -251,9 +241,6 @@ export default function LoginPage() {
               />
             </div>
             <PrimaryButton loading={loading} text="Continue" />
-            <div style={{ marginTop: '16px' }}>
-              <BackLink onClick={() => goTo('email', 'back')} />
-            </div>
           </form>
         );
 

@@ -187,5 +187,53 @@ export function verifyCode(email: string, code: string): Promise<AuthResponse> {
   return post('/auth/verify-code', { email, code });
 }
 
-const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del };
+// ── File Upload Helper ─────────────────────────────────────────────────────
+
+export async function uploadFile<T = unknown>(
+  path: string,
+  file: File,
+  extraFields?: Record<string, string>
+): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const token = getToken();
+
+  const formData = new FormData();
+  formData.append('file', file);
+  if (extraFields) {
+    for (const [key, value] of Object.entries(extraFields)) {
+      formData.append(key, value);
+    }
+  }
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+    }
+    throw new Error('Unauthorized');
+  }
+
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    const message =
+      (errorBody as { error?: string }).error ||
+      `Upload failed with status ${res.status}`;
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del, uploadFile };
 export default API;

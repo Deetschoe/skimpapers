@@ -1,11 +1,42 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
 const xml2js = require('xml2js');
+const multer = require('multer');
 const { getDb } = require('../db');
 const { authMiddleware } = require('../middleware/auth');
-const { processPdf } = require('../services/pdf');
+const { processPdf, extractText, textToMarkdown } = require('../services/pdf');
 const { analyzePaper, answerAnnotation, chatAboutPaper } = require('../services/claude');
+
+// ─── Multer configuration for PDF uploads ─────────────────────────
+const PDF_UPLOAD_DIR = '/data/pdfs';
+
+// Ensure the upload directory exists
+fs.mkdirSync(PDF_UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, PDF_UPLOAD_DIR);
+  },
+  filename: (_req, _file, cb) => {
+    const uniqueName = crypto.randomUUID() + '.pdf';
+    cb(null, uniqueName);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'));
+    }
+  },
+});
 
 const router = express.Router();
 
@@ -638,6 +669,109 @@ async function searchPubmed(query, start, max) {
 
   return { results, total: totalCount };
 }
+
+// POST /api/papers/upload - Add a new paper by PDF file upload
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'A PDF file is required. Send it as multipart form data with field name "file".' });
+    }
+
+    const db = getDb();
+    const userId = req.user.id;
+    const filePath = req.file.path;
+
+    // Step 1: Read the uploaded PDF and extract text
+    let markdown;
+    try {
+      const pdfBuffer = fs.readFileSync(filePath);
+      const rawText = await extractText(pdfBuffer);
+      markdown = textToMarkdown(rawText);
+
+      if (!markdown || markdown.trim().length < 100) {
+        return res.status(422).json({
+          error: 'Could not extract sufficient text from the PDF. The file may be scanned or image-based.',
+        });
+      }
+    } catch (err) {
+      console.error('PDF processing error:', err);
+      return res.status(422).json({
+        error: `Failed to process PDF: ${err.message}`,
+      });
+    }
+
+    // Step 2: Claude analysis
+    let analysis;
+    try {
+      analysis = await analyzePaper(markdown, userId);
+    } catch (err) {
+      console.error('Claude analysis error:', err);
+      // Save the paper even if Claude fails, with empty analysis
+      analysis = {
+        summary: null,
+        rating: null,
+        category: 'Other',
+        tags: [],
+        keyFindings: [],
+        costEstimate: 0,
+      };
+    }
+
+    // Step 3: Determine title
+    let title = req.body.title || null;
+    if (!title) {
+      // Try to extract title from the first line of markdown
+      const firstLine = markdown.split('\n').find((l) => l.trim().length > 0);
+      title = firstLine ? firstLine.replace(/^#+\s*/, '').trim() : 'Untitled Paper';
+    }
+
+    // Step 4: Save to database
+    const paperId = crypto.randomUUID();
+    const addedDate = new Date().toISOString();
+
+    // Merge key findings into the summary if available
+    let fullSummary = analysis.summary || '';
+    if (analysis.keyFindings && analysis.keyFindings.length > 0) {
+      fullSummary += '\n\n**Key Findings:**\n' + analysis.keyFindings.map((f) => `- ${f}`).join('\n');
+    }
+
+    db.prepare(`
+      INSERT INTO papers (id, user_id, title, authors, abstract, url, pdf_url, markdown_content, summary, rating, category, tags, source, published_date, added_date, is_read)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      paperId,
+      userId,
+      title,
+      JSON.stringify([]),
+      null,
+      '',
+      filePath,
+      markdown,
+      fullSummary,
+      analysis.rating,
+      analysis.category,
+      JSON.stringify(analysis.tags),
+      'upload',
+      null,
+      addedDate,
+      0
+    );
+
+    // Step 5: Return the paper
+    const paper = db.prepare('SELECT * FROM papers WHERE id = ?').get(paperId);
+    res.status(201).json(formatPaper(paper));
+  } catch (err) {
+    // Handle multer errors specifically
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'File too large. Maximum size is 100 MB.' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('Error uploading paper:', err);
+    res.status(500).json({ error: 'Failed to upload paper' });
+  }
+});
 
 // GET /api/papers/:id - Get a single paper with full content
 router.get('/:id', (req, res) => {
