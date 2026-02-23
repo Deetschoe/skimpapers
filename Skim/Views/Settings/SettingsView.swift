@@ -125,7 +125,7 @@ struct SettingsView: View {
                         in: 0.8...1.4,
                         step: 0.1
                     )
-                    .tint(SkimTheme.accent)
+                    .tint(SkimTheme.inputTint)
 
                     Image(systemName: "textformat.size.larger")
                         .font(.system(size: 18))
@@ -334,7 +334,7 @@ struct SettingsView: View {
 
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .tint(SkimTheme.accent)
+                .tint(SkimTheme.inputTint)
         }
     }
 

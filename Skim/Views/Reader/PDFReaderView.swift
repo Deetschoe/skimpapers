@@ -7,6 +7,7 @@ struct PDFReaderView: View {
     let paper: Paper
     let onAskAI: (String?) -> Void
     let onCaptureRegion: (UIImage) -> Void
+    var showNavigationBar: Bool = true
 
     @Environment(\.dismiss) private var dismiss
 
@@ -24,8 +25,7 @@ struct PDFReaderView: View {
     @State private var captureEnd: CGPoint?
     @State private var selectedText: String?
     @State private var viewOpacity: Double = 0
-    @State private var pageIndicatorOpacity: Double = 1.0
-    @State private var hidePageIndicatorTask: DispatchWorkItem?
+    @State private var showAskAIButton = false
 
     var body: some View {
         ZStack {
@@ -33,7 +33,9 @@ struct PDFReaderView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                navigationBar
+                if showNavigationBar {
+                    navigationBar
+                }
                 pdfContent
             }
 
@@ -50,15 +52,57 @@ struct PDFReaderView: View {
                 regionCaptureOverlay
             }
 
-            // Page indicator pill
-            pageIndicatorPill
+            // Bottom page scrub bar
+            bottomPageScrubBar
+
+            // Floating "Ask AI" button when text is selected
+            if showAskAIButton, let text = selectedText, !text.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            onAskAI(text)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "brain.head.profile")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("Ask AI")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .fill(SkimTheme.accent)
+                                    .shadow(color: SkimTheme.accent.opacity(0.5), radius: 12, x: 0, y: 4)
+                            )
+                        }
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                        .padding(.trailing, SkimTheme.paddingLarge)
+                        .padding(.bottom, 80)
+                    }
+                }
+            }
         }
         .opacity(viewOpacity)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.4)) {
+            if showNavigationBar {
+                // Standalone mode: animate fade-in
+                withAnimation(.easeOut(duration: 0.4)) {
+                    viewOpacity = 1.0
+                }
+            } else {
+                // Embedded mode: show immediately (parent handles transitions)
                 viewOpacity = 1.0
             }
             loadPDF()
+        }
+        .onChange(of: selectedText) { _, newValue in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                showAskAIButton = newValue != nil && !(newValue ?? "").isEmpty
+            }
         }
         .navigationBarHidden(true)
     }
@@ -177,14 +221,14 @@ struct PDFReaderView: View {
 
     private var scrubOverlay: some View {
         GeometryReader { geometry in
-            // Invisible touch zone on right edge
+            // Invisible touch zone on right edge (narrower to reduce conflict with page swiping)
             Color.clear
-                .frame(width: 60)
+                .frame(width: 36)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .position(x: geometry.size.width - 30, y: geometry.size.height / 2)
+                .position(x: geometry.size.width - 18, y: geometry.size.height / 2)
                 .gesture(
-                    DragGesture(minimumDistance: 0)
+                    DragGesture(minimumDistance: 5)
                         .onChanged { value in
                             guard totalPages > 0 else { return }
                             if !isScrubbing {
@@ -402,19 +446,96 @@ struct PDFReaderView: View {
         )
     }
 
-    // MARK: - Page Indicator Pill
+    // MARK: - Bottom Page Scrub Bar
 
-    private var pageIndicatorPill: some View {
+    private var bottomPageScrubBar: some View {
         VStack {
             Spacer()
 
-            if totalPages > 0 && !isScrubbing {
+            if totalPages > 1 {
+                VStack(spacing: 6) {
+                    // Page label
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(SkimTheme.accent)
+
+                        Text(isScrubbing ? "Page \(scrubPage) of \(totalPages)" : "Page \(currentPage) of \(totalPages)")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(SkimTheme.textPrimary)
+                    }
+
+                    // Horizontal slider track
+                    GeometryReader { geometry in
+                        let trackWidth = geometry.size.width
+                        let displayPage = isScrubbing ? scrubPage : currentPage
+                        let thumbPosition = trackWidth * CGFloat(displayPage - 1) / max(CGFloat(totalPages - 1), 1)
+
+                        ZStack(alignment: .leading) {
+                            // Track background
+                            Capsule()
+                                .fill(SkimTheme.border)
+                                .frame(height: 4)
+
+                            // Filled portion
+                            Capsule()
+                                .fill(SkimTheme.accent)
+                                .frame(width: thumbPosition + 2, height: 4)
+
+                            // Thumb
+                            Circle()
+                                .fill(SkimTheme.accent)
+                                .frame(width: isScrubbing ? 22 : 16, height: isScrubbing ? 22 : 16)
+                                .shadow(color: SkimTheme.accent.opacity(0.4), radius: isScrubbing ? 6 : 3)
+                                .position(x: thumbPosition, y: geometry.size.height / 2)
+                                .animation(.interactiveSpring(response: 0.2, dampingFraction: 0.8), value: displayPage)
+                        }
+                        .frame(height: geometry.size.height)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    if !isScrubbing {
+                                        withAnimation(.easeOut(duration: 0.1)) {
+                                            isScrubbing = true
+                                        }
+                                    }
+                                    let fraction = min(max(value.location.x / trackWidth, 0), 1)
+                                    let page = max(1, min(totalPages, Int(round(fraction * Double(totalPages - 1))) + 1))
+                                    scrubPage = page
+                                }
+                                .onEnded { _ in
+                                    currentPage = scrubPage
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        isScrubbing = false
+                                    }
+                                }
+                        )
+                    }
+                    .frame(height: 24)
+                }
+                .padding(.horizontal, SkimTheme.paddingLarge)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(SkimTheme.surfaceElevated.opacity(0.95))
+                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: -2)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(SkimTheme.border, lineWidth: 0.5)
+                        )
+                )
+                .padding(.horizontal, SkimTheme.paddingMedium)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if totalPages == 1 {
+                // Single-page indicator
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(SkimTheme.accent)
 
-                    Text("\(currentPage) / \(totalPages)")
+                    Text("1 page")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundColor(SkimTheme.textPrimary)
                 }
@@ -424,20 +545,8 @@ struct PDFReaderView: View {
                     Capsule()
                         .fill(SkimTheme.surfaceElevated)
                         .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 2)
-                        .overlay(
-                            Capsule()
-                                .stroke(SkimTheme.border, lineWidth: 1)
-                        )
                 )
-                .opacity(pageIndicatorOpacity)
-                .padding(.bottom, 20)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .onChange(of: currentPage) { _, _ in
-                    showPageIndicatorBriefly()
-                }
-                .onAppear {
-                    showPageIndicatorBriefly()
-                }
+                .padding(.bottom, 12)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: totalPages)
@@ -500,20 +609,6 @@ struct PDFReaderView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             showContextMenu = true
         }
-    }
-
-    private func showPageIndicatorBriefly() {
-        hidePageIndicatorTask?.cancel()
-        withAnimation(.easeOut(duration: 0.15)) {
-            pageIndicatorOpacity = 1.0
-        }
-        let task = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.8)) {
-                pageIndicatorOpacity = 0.0
-            }
-        }
-        hidePageIndicatorTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: task)
     }
 
     private func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {

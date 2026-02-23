@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AddPaperView: View {
     @EnvironmentObject private var appState: AppState
@@ -9,6 +10,7 @@ struct AddPaperView: View {
     @State private var showSuccess = false
     @State private var errorMessage: String?
     @State private var checkmarkScale: CGFloat = 0
+    @State private var showFilePicker = false
 
     private var detectedSource: DetectedSource? {
         let lowered = url.lowercased()
@@ -16,10 +18,10 @@ struct AddPaperView: View {
             return DetectedSource(name: "arXiv", icon: "doc.text.fill", color: SkimTheme.accent)
         } else if lowered.contains("pubmed") || lowered.contains("ncbi.nlm.nih.gov") {
             return DetectedSource(name: "PubMed", icon: "cross.case.fill", color: SkimTheme.ratingGreen)
+        } else if lowered.contains("biorxiv.org") {
+            return DetectedSource(name: "bioRxiv", icon: "leaf.fill", color: SkimTheme.accentSecondary)
         } else if lowered.contains("scholar.google") {
             return DetectedSource(name: "Google Scholar", icon: "graduationcap.fill", color: SkimTheme.ratingYellow)
-        } else if lowered.contains("archive.org") {
-            return DetectedSource(name: "Archive.org", icon: "building.columns.fill", color: SkimTheme.accentSecondary)
         } else if isValidURL {
             return DetectedSource(name: "Web", icon: "globe", color: SkimTheme.textSecondary)
         }
@@ -57,6 +59,13 @@ struct AddPaperView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isProcessing)
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [UTType.pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            handleFileImport(result)
+        }
     }
 
     // MARK: - Form Content
@@ -74,7 +83,7 @@ struct AddPaperView: View {
                         .font(SkimTheme.headingFont)
                         .foregroundColor(SkimTheme.textPrimary)
 
-                    Text("Paste a link to any research paper")
+                    Text("Paste a link or upload a PDF")
                         .font(SkimTheme.bodyFont)
                         .foregroundColor(SkimTheme.textSecondary)
                 }
@@ -90,6 +99,7 @@ struct AddPaperView: View {
                         TextField("https://arxiv.org/abs/...", text: $url)
                             .font(SkimTheme.bodyFont)
                             .foregroundColor(SkimTheme.textPrimary)
+                            .tint(SkimTheme.inputTint)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                             .keyboardType(.URL)
@@ -155,7 +165,7 @@ struct AddPaperView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // Add button
+                // Add by URL button
                 Button {
                     addPaper()
                 } label: {
@@ -176,8 +186,31 @@ struct AddPaperView: View {
                 .disabled(!isValidURL || isProcessing)
                 .opacity(isValidURL ? 1.0 : 0.5)
 
-                // Supported sources hint
-                supportedSourcesHint
+                // Divider with "or"
+                HStack {
+                    Rectangle()
+                        .fill(SkimTheme.border)
+                        .frame(height: 1)
+                    Text("or")
+                        .font(SkimTheme.captionFont)
+                        .foregroundColor(SkimTheme.textTertiary)
+                    Rectangle()
+                        .fill(SkimTheme.border)
+                        .frame(height: 1)
+                }
+
+                // Upload PDF button
+                Button {
+                    showFilePicker = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.fill")
+                        Text("Upload PDF from Files")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SkimButtonStyle(isProminent: false))
+                .disabled(isProcessing)
             }
             .padding(.horizontal, SkimTheme.paddingLarge)
 
@@ -219,41 +252,9 @@ struct AddPaperView: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.6, blendDuration: 0)) {
                 checkmarkScale = 1.0
             }
-            // Auto-dismiss after delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 dismiss()
             }
-        }
-    }
-
-    // MARK: - Supported Sources Hint
-
-    private var supportedSourcesHint: some View {
-        VStack(spacing: 10) {
-            Text("Supported Sources")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(SkimTheme.textTertiary)
-                .textCase(.uppercase)
-                .tracking(1.2)
-
-            HStack(spacing: 16) {
-                sourceHint(icon: "doc.text.fill", name: "arXiv")
-                sourceHint(icon: "cross.case.fill", name: "PubMed")
-                sourceHint(icon: "graduationcap.fill", name: "Scholar")
-                sourceHint(icon: "building.columns.fill", name: "Archive")
-            }
-        }
-        .padding(.top, SkimTheme.paddingSmall)
-    }
-
-    private func sourceHint(icon: String, name: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 16))
-                .foregroundColor(SkimTheme.textTertiary)
-            Text(name)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundColor(SkimTheme.textTertiary)
         }
     }
 
@@ -279,6 +280,48 @@ struct AddPaperView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let fileURL = urls.first else { return }
+
+            // Must start security-scoped access for files from Files app
+            guard fileURL.startAccessingSecurityScopedResource() else {
+                withAnimation { errorMessage = "Unable to access file" }
+                return
+            }
+            defer { fileURL.stopAccessingSecurityScopedResource() }
+
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let filename = fileURL.lastPathComponent
+
+                withAnimation { errorMessage = nil }
+                isProcessing = true
+
+                Task {
+                    do {
+                        try await appState.addPaperFromPDF(data: data, filename: filename)
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isProcessing = false
+                            showSuccess = true
+                        }
+                    } catch {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            isProcessing = false
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            } catch {
+                withAnimation { errorMessage = "Failed to read PDF file" }
+            }
+
+        case .failure(let error):
+            withAnimation { errorMessage = error.localizedDescription }
         }
     }
 }

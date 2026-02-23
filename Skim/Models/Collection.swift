@@ -24,6 +24,40 @@ struct PaperCollection: Identifiable, Codable, Hashable {
         self.createdAt = createdAt
     }
 
+    // Custom decoding to handle backend response shape:
+    // Backend sends { id, userId, name, icon, colorName, paperCount, createdAt }
+    // where createdAt is an ISO 8601 string and paperIds is absent.
+    // Local cache sends { id, name, icon, colorName, paperIds, createdAt }.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? "folder.fill"
+        colorName = try container.decodeIfPresent(String.self, forKey: .colorName) ?? "accent"
+        paperIds = try container.decodeIfPresent([String].self, forKey: .paperIds) ?? []
+
+        // createdAt may come as a Date (from local cache) or ISO 8601 string (from backend)
+        if let date = try? container.decode(Date.self, forKey: .createdAt) {
+            createdAt = date
+        } else if let dateString = try? container.decode(String.self, forKey: .createdAt) {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let parsed = formatter.date(from: dateString) {
+                createdAt = parsed
+            } else {
+                // Try without fractional seconds
+                formatter.formatOptions = [.withInternetDateTime]
+                createdAt = formatter.date(from: dateString) ?? Date()
+            }
+        } else {
+            createdAt = Date()
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, icon, colorName, paperIds, createdAt
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

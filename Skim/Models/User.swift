@@ -32,6 +32,7 @@ struct UsageInfo: Codable {
     let totalPapers: Int
     let totalQueries: Int
     let apiCostEstimate: Double
+    let monthlyCost: Double
     let periodStart: String
     let periodEnd: String
 }

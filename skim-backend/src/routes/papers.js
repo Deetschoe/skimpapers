@@ -700,40 +700,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Step 2: Claude analysis
-    let analysis;
-    try {
-      analysis = await analyzePaper(markdown, userId);
-    } catch (err) {
-      console.error('Claude analysis error:', err);
-      // Save the paper even if Claude fails, with empty analysis
-      analysis = {
-        summary: null,
-        rating: null,
-        category: 'Other',
-        tags: [],
-        keyFindings: [],
-        costEstimate: 0,
-      };
-    }
-
-    // Step 3: Determine title
+    // Step 2: Determine title (no Claude analysis — save tokens)
     let title = req.body.title || null;
     if (!title) {
-      // Try to extract title from the first line of markdown
       const firstLine = markdown.split('\n').find((l) => l.trim().length > 0);
       title = firstLine ? firstLine.replace(/^#+\s*/, '').trim() : 'Untitled Paper';
     }
 
-    // Step 4: Save to database
+    // Step 3: Save to database
     const paperId = crypto.randomUUID();
     const addedDate = new Date().toISOString();
-
-    // Merge key findings into the summary if available
-    let fullSummary = analysis.summary || '';
-    if (analysis.keyFindings && analysis.keyFindings.length > 0) {
-      fullSummary += '\n\n**Key Findings:**\n' + analysis.keyFindings.map((f) => `- ${f}`).join('\n');
-    }
 
     db.prepare(`
       INSERT INTO papers (id, user_id, title, authors, abstract, url, pdf_url, markdown_content, summary, rating, category, tags, source, published_date, added_date, is_read)
@@ -747,10 +723,10 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       '',
       filePath,
       markdown,
-      fullSummary,
-      analysis.rating,
-      analysis.category,
-      JSON.stringify(analysis.tags),
+      null,
+      null,
+      'Other',
+      JSON.stringify([]),
       'upload',
       null,
       addedDate,
@@ -770,6 +746,38 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
     console.error('Error uploading paper:', err);
     res.status(500).json({ error: 'Failed to upload paper' });
+  }
+});
+
+// GET /api/papers/:id/pdf - Serve the PDF file for a paper
+router.get('/:id/pdf', (req, res) => {
+  try {
+    const db = getDb();
+    const paper = db
+      .prepare('SELECT * FROM papers WHERE id = ? AND user_id = ?')
+      .get(req.params.id, req.user.id);
+
+    if (!paper) {
+      return res.status(404).json({ error: 'Paper not found' });
+    }
+
+    if (paper.source === 'upload' && paper.pdf_url) {
+      // Uploaded PDF — serve from disk
+      const pdfPath = path.resolve(paper.pdf_url);
+      if (!fs.existsSync(pdfPath)) {
+        return res.status(404).json({ error: 'PDF file not found on disk' });
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.sendFile(pdfPath);
+    } else if (paper.pdf_url) {
+      // External PDF — redirect
+      res.redirect(paper.pdf_url);
+    } else {
+      res.status(404).json({ error: 'No PDF available for this paper' });
+    }
+  } catch (err) {
+    console.error('Error serving PDF:', err);
+    res.status(500).json({ error: 'Failed to serve PDF' });
   }
 });
 

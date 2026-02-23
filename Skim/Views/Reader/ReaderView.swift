@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ReaderView: View {
     let paper: Paper
@@ -38,10 +39,23 @@ struct ReaderView: View {
 
             VStack(spacing: 0) {
                 navigationBar
-                scrollContent
+
+                if selectedTab == .pdf {
+                    // PDF tab: show tab selector + full-screen PDF (no scroll view wrapper)
+                    tabSelector
+                        .padding(.horizontal, SkimTheme.paddingMedium)
+                        .padding(.vertical, SkimTheme.paddingSmall)
+
+                    pdfTabContent
+                } else {
+                    // Other tabs: scrollable content with swipe gesture between non-PDF tabs
+                    scrollContent
+                }
             }
 
-            floatingAIButton
+            if selectedTab != .pdf {
+                floatingAIButton
+            }
         }
         .opacity(viewOpacity)
         .onAppear {
@@ -61,6 +75,27 @@ struct ReaderView: View {
             .environmentObject(appState)
         }
         .navigationBarHidden(true)
+    }
+
+    // MARK: - Tab Swipe Gesture
+
+    private var tabSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 50, coordinateSpace: .local)
+            .onEnded { value in
+                // Only trigger for mostly-horizontal swipes
+                guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
+
+                let allTabs = ReaderTab.allCases
+                guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
+
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    if value.translation.width < -50, currentIndex < allTabs.count - 1 {
+                        selectedTab = allTabs[currentIndex + 1]
+                    } else if value.translation.width > 50, currentIndex > 0 {
+                        selectedTab = allTabs[currentIndex - 1]
+                    }
+                }
+            }
     }
 
     // MARK: - Navigation Bar
@@ -111,11 +146,12 @@ struct ReaderView: View {
                 tabSelector
                     .padding(.bottom, SkimTheme.paddingMedium)
 
-                tabContent
+                nonPdfTabContent
                     .padding(.bottom, 100)
             }
             .padding(.horizontal, SkimTheme.paddingMedium)
         }
+        .simultaneousGesture(tabSwipeGesture)
     }
 
     // MARK: - Metadata Header
@@ -214,23 +250,32 @@ struct ReaderView: View {
         )
     }
 
-    // MARK: - Tab Content
+    // MARK: - Tab Content (non-PDF tabs, rendered inside ScrollView)
 
     @ViewBuilder
-    private var tabContent: some View {
+    private var nonPdfTabContent: some View {
         switch selectedTab {
         case .summary:
             summaryTabContent
-                .transition(.opacity.combined(with: .move(edge: .leading)))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .leading).combined(with: .opacity),
+                    removal: .move(edge: .trailing).combined(with: .opacity)
+                ))
         case .fullPaper:
             fullPaperTabContent
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         case .pdf:
-            pdfTabContent
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            // PDF is handled outside the ScrollView; this should not render
+            EmptyView()
         case .annotations:
             annotationsTabContent
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         }
     }
 
@@ -486,21 +531,14 @@ struct ReaderView: View {
             }
             .padding(.bottom, SkimTheme.paddingMedium)
 
-            // Render markdown with Text's built-in markdown support
-            if let attributed = try? AttributedString(markdown: content, options: .init(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )) {
-                Text(attributed)
-                    .font(SkimTheme.bodyFont)
-                    .foregroundColor(SkimTheme.textPrimary)
-                    .lineSpacing(6)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .tint(SkimTheme.accent)
-            } else {
-                // Fallback: render sections manually
-                markdownSections(content)
-            }
+            // Selectable text view with "Ask AI" menu support
+            SelectableTextView(
+                content: content,
+                onAskAI: { text in
+                    selectedTextForAI = text
+                    showAISheet = true
+                }
+            )
         }
         .padding(SkimTheme.paddingMedium)
         .background(
@@ -571,7 +609,7 @@ struct ReaderView: View {
         .textSelection(.enabled)
     }
 
-    // MARK: - PDF Tab
+    // MARK: - PDF Tab (rendered outside ScrollView to avoid gesture conflicts)
 
     @ViewBuilder
     private var pdfTabContent: some View {
@@ -582,9 +620,10 @@ struct ReaderView: View {
                     selectedTextForAI = text
                     showAISheet = true
                 },
-                onCaptureRegion: { _ in }
+                onCaptureRegion: { _ in },
+                showNavigationBar: false
             )
-            .frame(minHeight: 600)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: SkimTheme.paddingMedium) {
                 Image(systemName: "doc.text.magnifyingglass")
@@ -599,8 +638,7 @@ struct ReaderView: View {
                     .font(SkimTheme.captionFont)
                     .foregroundColor(SkimTheme.textTertiary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 60)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -789,6 +827,159 @@ struct ReaderView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Selectable Text View with Ask AI Menu
+
+/// A UITextView wrapper that supports text selection and adds a custom "Ask AI"
+/// action to the edit menu so users can highlight text and send it to the AI assistant.
+struct SelectableTextView: UIViewRepresentable {
+    let content: String
+    let onAskAI: (String) -> Void
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = AskAITextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.dataDetectorTypes = []
+        textView.onAskAI = { [onAskAI] selectedText in
+            onAskAI(selectedText)
+        }
+
+        updateTextContent(textView)
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if let askAITextView = textView as? AskAITextView {
+            askAITextView.onAskAI = { [onAskAI] selectedText in
+                onAskAI(selectedText)
+            }
+        }
+        updateTextContent(textView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    private func updateTextContent(_ textView: UITextView) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 6
+
+        let baseFont = UIFont.systemFont(ofSize: 15, weight: .regular)
+        let headingFont = UIFont.systemFont(ofSize: 20, weight: .bold)
+        let subheadingFont = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        let subsubheadingFont = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        let monoFont = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+        let textColor = UIColor(SkimTheme.textPrimary)
+        let secondaryColor = UIColor(SkimTheme.textSecondary)
+        let accentColor = UIColor(SkimTheme.accent)
+
+        let result = NSMutableAttributedString()
+        let lines = content.components(separatedBy: "\n")
+
+        for (index, line) in lines.enumerated() {
+            let isLast = index == lines.count - 1
+            let newline = isLast ? "" : "\n"
+
+            if line.hasPrefix("# ") {
+                let ps = NSMutableParagraphStyle()
+                ps.paragraphSpacingBefore = 16
+                ps.paragraphSpacing = 4
+                result.append(NSAttributedString(
+                    string: String(line.dropFirst(2)) + newline,
+                    attributes: [.font: headingFont, .foregroundColor: textColor, .paragraphStyle: ps]
+                ))
+            } else if line.hasPrefix("## ") {
+                let ps = NSMutableParagraphStyle()
+                ps.paragraphSpacingBefore = 14
+                ps.paragraphSpacing = 2
+                result.append(NSAttributedString(
+                    string: String(line.dropFirst(3)) + newline,
+                    attributes: [.font: subheadingFont, .foregroundColor: textColor, .paragraphStyle: ps]
+                ))
+            } else if line.hasPrefix("### ") {
+                let ps = NSMutableParagraphStyle()
+                ps.paragraphSpacingBefore = 10
+                result.append(NSAttributedString(
+                    string: String(line.dropFirst(4)) + newline,
+                    attributes: [.font: subsubheadingFont, .foregroundColor: accentColor, .paragraphStyle: ps]
+                ))
+            } else if line.hasPrefix("```") {
+                continue
+            } else if line.hasPrefix("    ") || line.hasPrefix("\t") {
+                result.append(NSAttributedString(
+                    string: line + newline,
+                    attributes: [.font: monoFont, .foregroundColor: accentColor.withAlphaComponent(0.85), .paragraphStyle: paragraphStyle]
+                ))
+            } else if line.hasPrefix("> ") {
+                let ps = NSMutableParagraphStyle()
+                ps.headIndent = 12
+                ps.firstLineHeadIndent = 12
+                ps.paragraphSpacing = 4
+                result.append(NSAttributedString(
+                    string: String(line.dropFirst(2)) + newline,
+                    attributes: [.font: UIFont.italicSystemFont(ofSize: 15), .foregroundColor: secondaryColor, .paragraphStyle: ps]
+                ))
+            } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont.withSize(8)]))
+            } else {
+                result.append(NSAttributedString(
+                    string: line + newline,
+                    attributes: [.font: baseFont, .foregroundColor: textColor, .paragraphStyle: paragraphStyle]
+                ))
+            }
+        }
+
+        textView.attributedText = result
+    }
+
+    class Coordinator: NSObject {}
+}
+
+/// Custom UITextView subclass that adds an "Ask AI" item to the text selection menu.
+class AskAITextView: UITextView {
+    var onAskAI: ((String) -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(askAIAction(_:)) {
+            return selectedRange.length > 0
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        super.buildMenu(with: builder)
+
+        let askAIAction = UIAction(
+            title: "Ask AI",
+            image: UIImage(systemName: "brain.head.profile")
+        ) { [weak self] _ in
+            self?.performAskAI()
+        }
+
+        let menu = UIMenu(title: "", options: .displayInline, children: [askAIAction])
+        builder.insertChild(menu, atStartOfMenu: .standardEdit)
+    }
+
+    @objc private func askAIAction(_ sender: Any?) {
+        performAskAI()
+    }
+
+    private func performAskAI() {
+        guard selectedRange.length > 0,
+              let text = self.text,
+              let range = Range(selectedRange, in: text) else { return }
+        let selectedText = String(text[range])
+        guard !selectedText.isEmpty else { return }
+        onAskAI?(selectedText)
     }
 }
 

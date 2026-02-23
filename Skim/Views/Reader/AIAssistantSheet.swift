@@ -323,6 +323,7 @@ struct AIAssistantSheet: View {
             TextField("Ask about this paper...", text: $currentQuestion, axis: .vertical)
                 .font(SkimTheme.bodyFont)
                 .foregroundColor(SkimTheme.textPrimary)
+                .tint(SkimTheme.inputTint)
                 .lineLimit(1...4)
                 .focused($isTextFieldFocused)
                 .onSubmit {
@@ -380,12 +381,29 @@ struct AIAssistantSheet: View {
 
         Task {
             do {
-                let context = markdownContent ?? paper.abstract
-                let answer = try await ClaudeService.shared.askAboutPaper(
-                    question: question,
-                    context: context,
-                    selectedText: selectedText
+                guard let token = appState.currentUser?.token else {
+                    throw SkimError.notAuthenticated
+                }
+
+                // Build the user message with optional selected text context
+                var userContent = ""
+                if let sel = selectedText, !sel.isEmpty {
+                    userContent += "Selected passage:\n\"\"\"\n\(sel)\n\"\"\"\n\n"
+                }
+                userContent += question
+
+                let chatMessages: [[String: String]] = [
+                    ["role": "user", "content": userContent]
+                ]
+
+                let response = try await APIService.shared.chatWithPaper(
+                    paperId: paper.id,
+                    messages: chatMessages,
+                    token: token
                 )
+
+                let answer = response["response"] as? String
+                    ?? "No response received."
 
                 let message = ChatMessage(
                     question: question,

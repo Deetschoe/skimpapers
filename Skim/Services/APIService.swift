@@ -3,7 +3,7 @@ import Foundation
 final class APIService {
 
     static let shared = APIService()
-    static var baseURL = "https://skim-api.example.com/api"
+    static var baseURL = "https://api.skimpapers.org/api"
 
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -82,6 +82,61 @@ final class APIService {
         try validateResponse(response)
     }
 
+    func searchPapers(query: String, token: String) async throws -> [Paper] {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let request = try authorizedRequest(path: "/papers/search?q=\(encoded)", method: "GET", token: token)
+        let papers: [Paper] = try await perform(request)
+        return papers
+    }
+
+    func uploadPDF(data: Data, filename: String, token: String) async throws -> Paper {
+        let boundary = UUID().uuidString
+        guard let url = URL(string: Self.baseURL + "/papers/upload") else {
+            throw SkimError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/pdf\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        // PDF processing can take a while
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 300
+        let uploadSession = URLSession(configuration: config)
+
+        let (responseData, response) = try await uploadSession.data(for: request)
+        try validateResponse(response)
+        return try decoder.decode(Paper.self, from: responseData)
+    }
+
+    // MARK: - AI Chat
+
+    func chatWithPaper(paperId: String, messages: [[String: String]], token: String) async throws -> [String: Any] {
+        let body: [String: Any] = ["messages": messages]
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let request = try authorizedRequest(
+            path: "/papers/\(paperId)/chat",
+            method: "POST",
+            token: token,
+            rawBody: jsonData
+        )
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SkimError.serverError("Failed to decode chat response")
+        }
+        return json
+    }
+
     // MARK: - Annotations
 
     func getAnnotations(paperId: String, token: String) async throws -> [Annotation] {
@@ -106,10 +161,75 @@ final class APIService {
         return saved
     }
 
+    // MARK: - Collections
+
+    func getCollections(token: String) async throws -> [PaperCollection] {
+        let request = try authorizedRequest(path: "/collections", method: "GET", token: token)
+        let collections: [PaperCollection] = try await perform(request)
+        return collections
+    }
+
+    func createCollection(name: String, icon: String?, colorName: String?, token: String) async throws -> PaperCollection {
+        var body: [String: String] = ["name": name]
+        if let icon { body["icon"] = icon }
+        if let colorName { body["colorName"] = colorName }
+        let request = try authorizedRequest(path: "/collections", method: "POST", token: token, body: body)
+        let collection: PaperCollection = try await perform(request)
+        return collection
+    }
+
+    func updateCollection(id: String, name: String?, icon: String?, colorName: String?, token: String) async throws -> PaperCollection {
+        var body: [String: String] = [:]
+        if let name { body["name"] = name }
+        if let icon { body["icon"] = icon }
+        if let colorName { body["colorName"] = colorName }
+        let request = try authorizedRequest(path: "/collections/\(id)", method: "PUT", token: token, body: body)
+        let collection: PaperCollection = try await perform(request)
+        return collection
+    }
+
+    func deleteCollection(id: String, token: String) async throws {
+        let request = try authorizedRequest(path: "/collections/\(id)", method: "DELETE", token: token)
+        let (_, response) = try await session.data(for: request)
+        try validateResponse(response)
+    }
+
+    func getCollectionPapers(collectionId: String, token: String) async throws -> [Paper] {
+        let request = try authorizedRequest(
+            path: "/collections/\(collectionId)/papers",
+            method: "GET",
+            token: token
+        )
+        let papers: [Paper] = try await perform(request)
+        return papers
+    }
+
+    func addPaperToCollection(collectionId: String, paperId: String, token: String) async throws {
+        let body: [String: String] = ["paperId": paperId]
+        let request = try authorizedRequest(
+            path: "/collections/\(collectionId)/papers",
+            method: "POST",
+            token: token,
+            body: body
+        )
+        let (_, response) = try await session.data(for: request)
+        try validateResponse(response)
+    }
+
+    func removePaperFromCollection(collectionId: String, paperId: String, token: String) async throws {
+        let request = try authorizedRequest(
+            path: "/collections/\(collectionId)/papers/\(paperId)",
+            method: "DELETE",
+            token: token
+        )
+        let (_, response) = try await session.data(for: request)
+        try validateResponse(response)
+    }
+
     // MARK: - Usage
 
     func getUsage(token: String) async throws -> UsageInfo {
-        let request = try authorizedRequest(path: "/papers/usage", method: "GET", token: token)
+        let request = try authorizedRequest(path: "/usage", method: "GET", token: token)
         let usage: UsageInfo = try await perform(request)
         return usage
     }
@@ -161,6 +281,7 @@ final class APIService {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
+            print("Decode error:", error)
             throw SkimError.serverError("Failed to decode response")
         }
     }

@@ -19,18 +19,9 @@ const colors = {
   textTertiary: '#9E9E99',
   destructive: '#D94032',
   border: '#E0DFDA',
-  ratingGreen: '#38A666',
-  ratingYellow: '#D1A626',
-  ratingRed: '#D94032',
   cornerRadius: '14px',
   cornerRadiusSm: '8px',
 };
-
-function getRatingColor(rating: number): string {
-  if (rating >= 7) return colors.ratingGreen;
-  if (rating >= 5) return colors.ratingYellow;
-  return colors.ratingRed;
-}
 
 function formatDate(dateStr: string): string {
   try {
@@ -46,8 +37,6 @@ function formatDate(dateStr: string): string {
 }
 
 export default function PaperCard({ paper, onClick, onDelete }: PaperCardProps) {
-  const ratingColor = getRatingColor(paper.rating);
-
   return (
     <div
       onClick={() => onClick(paper)}
@@ -144,39 +133,8 @@ export default function PaperCard({ paper, onClick, onDelete }: PaperCardProps) 
         {paper.authors.join(', ')}
       </p>
 
-      {/* Meta row: source, rating, category */}
+      {/* Category badge */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-        {/* Source badge */}
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '3px 10px',
-            borderRadius: '20px',
-            fontSize: '12px',
-            fontWeight: 500,
-            background: 'rgba(77,133,112,0.12)',
-            color: colors.accentSecondary,
-          }}
-        >
-          {paper.source}
-        </span>
-
-        {/* Rating badge */}
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '3px 10px',
-            borderRadius: '20px',
-            fontSize: '12px',
-            fontWeight: 600,
-            background: `${ratingColor}18`,
-            color: ratingColor,
-          }}
-        >
-          {paper.rating}/10
-        </span>
-
-        {/* Category badge */}
         <span
           style={{
             display: 'inline-block',

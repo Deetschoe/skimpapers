@@ -23,6 +23,7 @@ enum SkimTheme {
     // Accent colors stay the same in both modes
     static let accent = Color(red: 0.78, green: 0.36, blue: 0.22)         // Terracotta
     static let accentSecondary = Color(red: 0.30, green: 0.52, blue: 0.44) // Sage green
+    static let inputTint = Color(red: 0.80, green: 0.50, blue: 0.40)      // #CC8065 — warm orange for cursors/selection
 
     static let textPrimary = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark

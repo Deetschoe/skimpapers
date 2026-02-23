@@ -115,6 +115,7 @@ struct AuthView: View {
                     TextField("", text: $accessCodeText, prompt: Text("Enter invite code").foregroundColor(SkimTheme.textTertiary))
                         .font(.system(size: 16, weight: .regular))
                         .foregroundColor(SkimTheme.textPrimary)
+                        .tint(SkimTheme.inputTint)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .accessCode)
@@ -141,7 +142,6 @@ struct AuthView: View {
             }
             .padding(.horizontal, SkimTheme.paddingLarge)
             .padding(.bottom, SkimTheme.paddingLarge)
-            .tint(SkimTheme.accent)
             .animation(.easeOut(duration: 0.2), value: focusedField)
 
             // Error message
@@ -188,6 +188,7 @@ struct AuthView: View {
                     TextField("", text: $email, prompt: Text("you@example.com").foregroundColor(SkimTheme.textTertiary))
                         .font(.system(size: 16, weight: .regular))
                         .foregroundColor(SkimTheme.textPrimary)
+                        .tint(SkimTheme.inputTint)
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -216,7 +217,6 @@ struct AuthView: View {
             }
             .padding(.horizontal, SkimTheme.paddingLarge)
             .padding(.bottom, SkimTheme.paddingLarge)
-            .tint(SkimTheme.accent)
             .animation(.easeOut(duration: 0.2), value: focusedField)
 
             // Error message
@@ -389,7 +389,7 @@ struct AuthView: View {
                     try await APIService.shared.requestCode(email: email)
                 } else {
                     // New user: send OTP with access code
-                    try await APIService.shared.requestCode(email: email, accessCode: "dieter")
+                    try await APIService.shared.requestCode(email: email, accessCode: accessCodeText)
                 }
                 isLoading = false
                 goToStep(.pinVerify)
@@ -424,7 +424,7 @@ struct AuthView: View {
                 if userExists {
                     try await APIService.shared.requestCode(email: email)
                 } else {
-                    try await APIService.shared.requestCode(email: email, accessCode: "dieter")
+                    try await APIService.shared.requestCode(email: email, accessCode: accessCodeText)
                 }
                 codeSentConfirmation = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -450,74 +450,80 @@ struct PINCodeInput: View {
     @State private var shakeOffset: CGFloat = 0
 
     var body: some View {
-        ZStack {
-            // Hidden text field that captures all input
-            TextField("", text: $digits)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .frame(width: 1, height: 1)
-                .opacity(0.01)
-                .focused($textFieldFocused)
-                .onChange(of: digits) { _, newValue in
-                    // Filter to digits only and clamp length
-                    let filtered = String(newValue.filter { $0.isNumber }.prefix(length))
-                    if filtered != newValue {
-                        digits = filtered
+        VStack(spacing: 0) {
+            // Visual PIN boxes overlaid on the real text field
+            ZStack {
+                // Real text field — full size of the PIN area so it always receives taps
+                TextField("", text: $digits)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($textFieldFocused)
+                    .foregroundColor(.clear)
+                    .tint(.clear)
+                    .accentColor(.clear)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .onChange(of: digits) { _, newValue in
+                        // Filter to digits only and clamp length
+                        let filtered = String(newValue.filter { $0.isNumber }.prefix(length))
+                        if filtered != newValue {
+                            digits = filtered
+                        }
+                        // Auto-trigger when all digits entered
+                        if filtered.count == length {
+                            onComplete(filtered)
+                        }
                     }
-                    // Auto-trigger when all digits entered
-                    if filtered.count == length {
-                        onComplete(filtered)
-                    }
-                }
 
-            // Visual PIN boxes
-            HStack(spacing: 10) {
-                ForEach(0..<length, id: \.self) { index in
-                    let digitChar = characterAt(index: index)
-                    let isActive = index == digits.count && isFocused
+                // Visual PIN boxes drawn on top (non-interactive, passes taps through)
+                HStack(spacing: 10) {
+                    ForEach(0..<length, id: \.self) { index in
+                        let digitChar = characterAt(index: index)
+                        let isActive = index == digits.count && textFieldFocused
 
-                    ZStack {
-                        RoundedRectangle(cornerRadius: SkimTheme.cornerRadiusSmall)
-                            .fill(SkimTheme.surface)
-                            .frame(width: 48, height: 56)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: SkimTheme.cornerRadiusSmall)
-                                    .stroke(
-                                        isActive ? SkimTheme.accent : SkimTheme.border,
-                                        lineWidth: isActive ? 2 : 1.5
-                                    )
-                            )
-                            .shadow(
-                                color: isActive ? SkimTheme.accent.opacity(0.15) : .clear,
-                                radius: 6, x: 0, y: 2
-                            )
+                        ZStack {
+                            RoundedRectangle(cornerRadius: SkimTheme.cornerRadiusSmall)
+                                .fill(SkimTheme.surface)
+                                .frame(width: 48, height: 56)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: SkimTheme.cornerRadiusSmall)
+                                        .stroke(
+                                            isActive ? SkimTheme.accent : SkimTheme.border,
+                                            lineWidth: isActive ? 2 : 1.5
+                                        )
+                                )
+                                .shadow(
+                                    color: isActive ? SkimTheme.accent.opacity(0.15) : .clear,
+                                    radius: 6, x: 0, y: 2
+                                )
 
-                        if let char = digitChar {
-                            Text(String(char))
-                                .font(.system(size: 24, weight: .medium, design: .rounded))
-                                .foregroundColor(SkimTheme.textPrimary)
-                        } else if isActive {
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(SkimTheme.accent)
-                                .frame(width: 2, height: 24)
-                                .opacity(isFocused ? 1 : 0)
+                            if let char = digitChar {
+                                Text(String(char))
+                                    .font(.system(size: 24, weight: .medium, design: .rounded))
+                                    .foregroundColor(SkimTheme.textPrimary)
+                            } else if isActive {
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(SkimTheme.accent)
+                                    .frame(width: 2, height: 24)
+                            }
                         }
                     }
                 }
+                .allowsHitTesting(false) // Taps pass through to the real TextField below
+                .offset(x: shakeOffset)
             }
             .contentShape(Rectangle())
             .onTapGesture {
+                textFieldFocused = true
                 onFocusTap()
             }
-            .offset(x: shakeOffset)
         }
-        .tint(SkimTheme.accent)
         .onChange(of: isFocused) { _, newValue in
             textFieldFocused = newValue
         }
         .onAppear {
             if isFocused {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     textFieldFocused = true
                 }
             }

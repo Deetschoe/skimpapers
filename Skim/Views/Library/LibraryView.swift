@@ -92,6 +92,7 @@ struct LibraryView: View {
             TextField("Search papers, authors, tags...", text: $appState.searchText)
                 .font(SkimTheme.bodyFont)
                 .foregroundColor(SkimTheme.textPrimary)
+                .tint(SkimTheme.inputTint)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
 

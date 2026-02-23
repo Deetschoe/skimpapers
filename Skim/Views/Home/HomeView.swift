@@ -7,6 +7,10 @@ struct HomeView: View {
     @State private var showingSettings = false
     @State private var showingNewCollection = false
     @State private var newCollectionName = ""
+    @State private var showDrawer = false
+    @State private var drawerOffset: CGFloat = 0
+
+    private let drawerWidth: CGFloat = 280
 
     var body: some View {
         NavigationStack {
@@ -14,50 +18,33 @@ struct HomeView: View {
                 SkimTheme.background
                     .ignoresSafeArea()
 
-                if appState.papers.isEmpty {
-                    VStack(spacing: 0) {
-                        topBar
-                        emptyState
-                    }
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            // MARK: - Top Bar
-                            topBar
+                // Main content
+                mainContent
+                    .offset(x: showDrawer ? drawerWidth : 0)
 
-                            // MARK: - Search Bar
-                            searchBar
-                                .padding(.horizontal, SkimTheme.paddingMedium)
-                                .padding(.top, SkimTheme.paddingSmall)
-
-                            // MARK: - Continue Reading
-                            if !appState.recentlyReadPapers.isEmpty {
-                                continueReadingSection
-                                    .padding(.top, SkimTheme.paddingLarge)
+                // Dim overlay when drawer is open
+                if showDrawer {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .offset(x: showDrawer ? drawerWidth : 0)
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                showDrawer = false
                             }
-
-                            // MARK: - Recommended
-                            if !appState.recommendedPapers.isEmpty {
-                                recommendedSection
-                                    .padding(.top, SkimTheme.paddingLarge)
-                            }
-
-                            // MARK: - Collections
-                            collectionsSection
-                                .padding(.top, SkimTheme.paddingLarge)
-
-                            // MARK: - All Papers
-                            allPapersSection
-                                .padding(.top, SkimTheme.paddingLarge)
-                                .padding(.bottom, 100)
                         }
-                    }
-                    .refreshable {
-                        await appState.loadPapers()
-                    }
                 }
 
-                // MARK: - Floating Add Button
+                // Side drawer
+                HStack(spacing: 0) {
+                    drawerContent
+                        .frame(width: drawerWidth)
+                        .offset(x: showDrawer ? 0 : -drawerWidth)
+
+                    Spacer()
+                }
+                .ignoresSafeArea()
+
+                // Floating Add Button
                 VStack {
                     Spacer()
                     HStack {
@@ -66,7 +53,22 @@ struct HomeView: View {
                     }
                 }
                 .padding(SkimTheme.paddingLarge)
+                .offset(x: showDrawer ? drawerWidth : 0)
             }
+            .gesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { value in
+                        let horizontal = value.translation.width
+                        let vertical = abs(value.translation.height)
+                        // Only trigger if mostly horizontal
+                        guard abs(horizontal) > vertical else { return }
+                        if horizontal > 60 && !showDrawer {
+                            withAnimation(.easeOut(duration: 0.25)) { showDrawer = true }
+                        } else if horizontal < -60 && showDrawer {
+                            withAnimation(.easeOut(duration: 0.25)) { showDrawer = false }
+                        }
+                    }
+            )
             .navigationBarHidden(true)
             .navigationDestination(for: Paper.self) { paper in
                 ReaderView(paper: paper)
@@ -84,6 +86,7 @@ struct HomeView: View {
             }
             .alert("New Collection", isPresented: $showingNewCollection) {
                 TextField("Collection name", text: $newCollectionName)
+                    .tint(SkimTheme.inputTint)
                 Button("Cancel", role: .cancel) {
                     newCollectionName = ""
                 }
@@ -99,6 +102,7 @@ struct HomeView: View {
             }
             .alert("Rename Collection", isPresented: $showingRenameAlert) {
                 TextField("Collection name", text: $newCollectionName)
+                    .tint(SkimTheme.inputTint)
                 Button("Cancel", role: .cancel) {
                     newCollectionName = ""
                     collectionToRename = nil
@@ -117,42 +121,303 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Side Drawer
+
+    private var drawerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Drawer header
+            VStack(alignment: .leading, spacing: 4) {
+                Text("skim")
+                    .font(SkimTheme.logoFontSmall)
+                    .foregroundColor(SkimTheme.accent)
+
+                if let user = appState.currentUser {
+                    Text(user.email)
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(SkimTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, SkimTheme.paddingMedium)
+            .padding(.top, 60)
+            .padding(.bottom, SkimTheme.paddingMedium)
+
+            Divider()
+                .background(SkimTheme.border)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    // All Papers
+                    drawerRow(
+                        icon: "doc.text.fill",
+                        label: "All Papers",
+                        count: appState.papers.count
+                    ) {
+                        // Already on home, just close drawer
+                        withAnimation(.easeOut(duration: 0.25)) { showDrawer = false }
+                    }
+
+                    // Collections header
+                    HStack {
+                        Text("Collections")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(SkimTheme.textTertiary)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        Button {
+                            showingNewCollection = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(SkimTheme.textTertiary)
+                        }
+                    }
+                    .padding(.horizontal, SkimTheme.paddingMedium)
+                    .padding(.top, SkimTheme.paddingMedium)
+                    .padding(.bottom, 4)
+
+                    if appState.collections.isEmpty {
+                        Text("No collections yet")
+                            .font(SkimTheme.captionFont)
+                            .foregroundColor(SkimTheme.textTertiary)
+                            .padding(.horizontal, SkimTheme.paddingMedium)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(appState.collections) { collection in
+                            NavigationLink(value: collection) {
+                                drawerCollectionRow(collection: collection)
+                            }
+                            .buttonStyle(.plain)
+                            .simultaneousGesture(TapGesture().onEnded {
+                                withAnimation(.easeOut(duration: 0.25)) { showDrawer = false }
+                            })
+                        }
+                    }
+
+                    Divider()
+                        .background(SkimTheme.border)
+                        .padding(.vertical, SkimTheme.paddingSmall)
+
+                    // Recent papers
+                    Text("Recent")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(SkimTheme.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                        .padding(.horizontal, SkimTheme.paddingMedium)
+                        .padding(.bottom, 4)
+
+                    ForEach(appState.papers.prefix(8)) { paper in
+                        NavigationLink(value: paper) {
+                            drawerPaperRow(paper: paper)
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            withAnimation(.easeOut(duration: 0.25)) { showDrawer = false }
+                        })
+                    }
+                }
+                .padding(.top, SkimTheme.paddingSmall)
+            }
+
+            Divider()
+                .background(SkimTheme.border)
+
+            // Settings at bottom of drawer
+            Button {
+                withAnimation(.easeOut(duration: 0.25)) { showDrawer = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    showingSettings = true
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15))
+                        .foregroundColor(SkimTheme.textSecondary)
+                    Text("Settings")
+                        .font(SkimTheme.bodyFont)
+                        .foregroundColor(SkimTheme.textSecondary)
+                    Spacer()
+                }
+                .padding(.horizontal, SkimTheme.paddingMedium)
+                .padding(.vertical, 14)
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .background(SkimTheme.surface)
+    }
+
+    private func drawerRow(icon: String, label: String, count: Int, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 15))
+                    .foregroundColor(SkimTheme.accent)
+                    .frame(width: 22)
+                Text(label)
+                    .font(SkimTheme.bodyFont)
+                    .foregroundColor(SkimTheme.textPrimary)
+                Spacer()
+                Text("\(count)")
+                    .font(SkimTheme.captionFont)
+                    .foregroundColor(SkimTheme.textTertiary)
+            }
+            .padding(.horizontal, SkimTheme.paddingMedium)
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func drawerCollectionRow(collection: PaperCollection) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: collection.icon)
+                .font(.system(size: 14))
+                .foregroundColor(SkimTheme.collectionColor(for: collection.colorName))
+                .frame(width: 22)
+            Text(collection.name)
+                .font(SkimTheme.bodyFont)
+                .foregroundColor(SkimTheme.textPrimary)
+                .lineLimit(1)
+            Spacer()
+            Text("\(appState.papers(in: collection).count)")
+                .font(SkimTheme.captionFont)
+                .foregroundColor(SkimTheme.textTertiary)
+        }
+        .padding(.horizontal, SkimTheme.paddingMedium)
+        .padding(.vertical, 8)
+    }
+
+    private func drawerPaperRow(paper: Paper) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: paper.category.icon)
+                .font(.system(size: 12))
+                .foregroundColor(SkimTheme.textTertiary)
+                .frame(width: 22)
+            Text(paper.title)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(SkimTheme.textPrimary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, SkimTheme.paddingMedium)
+        .padding(.vertical, 7)
+    }
+
+    // MARK: - Main Content
+
+    private var mainContent: some View {
+        Group {
+            if appState.papers.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        topBar
+                        emptyState
+                    }
+                }
+                .refreshable {
+                    await appState.loadPapers()
+                    await appState.loadCollections()
+                }
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        topBar
+
+                        searchBar
+                            .padding(.horizontal, SkimTheme.paddingMedium)
+                            .padding(.top, SkimTheme.paddingSmall)
+
+                        if !appState.recentlyReadPapers.isEmpty {
+                            continueReadingSection
+                                .padding(.top, SkimTheme.paddingLarge)
+                        }
+
+                        if !appState.recommendedPapers.isEmpty {
+                            recommendedSection
+                                .padding(.top, SkimTheme.paddingLarge)
+                        }
+
+                        collectionsSection
+                            .padding(.top, SkimTheme.paddingLarge)
+
+                        allPapersSection
+                            .padding(.top, SkimTheme.paddingLarge)
+                            .padding(.bottom, 100)
+                    }
+                }
+                .refreshable {
+                    await appState.loadPapers()
+                    await appState.loadCollections()
+                }
+            }
+        }
+    }
+
     // MARK: - Top Bar
 
     private var topBar: some View {
         HStack {
+            // Hamburger menu to open drawer
+            Button {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    showDrawer.toggle()
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(SkimTheme.textSecondary)
+                    .frame(width: 38, height: 38)
+            }
+
             Text("skim")
                 .font(SkimTheme.logoFontSmall)
                 .foregroundColor(SkimTheme.accent)
 
             Spacer()
 
-            HStack(spacing: 10) {
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(SkimTheme.textSecondary)
-                        .frame(width: 38, height: 38)
-                        .background(SkimTheme.surface)
-                        .clipShape(Circle())
-                }
-
-                Button {
-                    showingAddPaper = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 38, height: 38)
-                        .background(SkimTheme.accent)
-                        .clipShape(Circle())
-                }
+            Button {
+                showingAddPaper = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 38, height: 38)
+                    .background(SkimTheme.accent)
+                    .clipShape(Circle())
             }
         }
         .padding(.horizontal, SkimTheme.paddingMedium)
         .padding(.top, SkimTheme.paddingSmall)
+    }
+
+    // MARK: - All Papers Section
+
+    private var allPapersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(title: "All Papers", icon: "doc.text.fill")
+
+            categoryChips
+
+            LazyVStack(spacing: 12) {
+                ForEach(appState.filteredPapers) { paper in
+                    NavigationLink(value: paper) {
+                        PaperCardView(paper: paper)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            Task { await appState.deletePaper(paper) }
+                        } label: {
+                            Label("Delete Paper", systemImage: "trash")
+                        }
+                    }
+                    .swipeToDelete {
+                        Task { await appState.deletePaper(paper) }
+                    }
+                }
+            }
+            .padding(.horizontal, SkimTheme.paddingMedium)
+        }
     }
 
     // MARK: - Search Bar
@@ -166,6 +431,7 @@ struct HomeView: View {
             TextField("Search papers...", text: $appState.searchText)
                 .font(SkimTheme.bodyFont)
                 .foregroundColor(SkimTheme.textPrimary)
+                .tint(SkimTheme.inputTint)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
 
@@ -331,37 +597,6 @@ struct HomeView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - All Papers Section
-
-    private var allPapersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "All Papers", icon: "doc.text.fill")
-
-            // Category filter chips
-            categoryChips
-
-            LazyVStack(spacing: 12) {
-                ForEach(appState.filteredPapers) { paper in
-                    NavigationLink(value: paper) {
-                        PaperCardView(paper: paper)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            Task { await appState.deletePaper(paper) }
-                        } label: {
-                            Label("Delete Paper", systemImage: "trash")
-                        }
-                    }
-                    .swipeToDelete {
-                        Task { await appState.deletePaper(paper) }
-                    }
-                }
-            }
-            .padding(.horizontal, SkimTheme.paddingMedium)
-        }
     }
 
     // MARK: - Category Filter Chips
