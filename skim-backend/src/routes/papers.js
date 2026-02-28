@@ -473,39 +473,15 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Step 8-9: Claude analysis
-    let analysis;
-    try {
-      analysis = await analyzePaper(markdown, userId);
-    } catch (err) {
-      console.error('Claude analysis error:', err);
-      // Save the paper even if Claude fails, with empty analysis
-      analysis = {
-        summary: null,
-        rating: null,
-        category: 'Other',
-        tags: [],
-        keyFindings: [],
-        costEstimate: 0,
-      };
-    }
-
-    // Use Claude's analysis for title if we didn't get one from metadata
+    // Use metadata title, or extract from first line of markdown
     if (!title) {
-      // Try to extract title from the first line of markdown
       const firstLine = markdown.split('\n').find((l) => l.trim().length > 0);
       title = firstLine ? firstLine.replace(/^#+\s*/, '').trim() : 'Untitled Paper';
     }
 
-    // Step 10: Save to database
+    // Save to database (no AI analysis — fast, clean save)
     const paperId = crypto.randomUUID();
     const addedDate = new Date().toISOString();
-
-    // Merge key findings into the summary if available
-    let fullSummary = analysis.summary || '';
-    if (analysis.keyFindings && analysis.keyFindings.length > 0) {
-      fullSummary += '\n\n**Key Findings:**\n' + analysis.keyFindings.map((f) => `- ${f}`).join('\n');
-    }
 
     db.prepare(`
       INSERT INTO papers (id, user_id, title, authors, abstract, url, pdf_url, markdown_content, summary, rating, category, tags, source, published_date, added_date, is_read)
@@ -519,10 +495,10 @@ router.post('/', async (req, res) => {
       url,
       pdfUrl,
       markdown,
-      fullSummary,
-      analysis.rating,
-      analysis.category,
-      JSON.stringify(analysis.tags),
+      null,
+      null,
+      'Other',
+      JSON.stringify([]),
       source,
       publishedDate,
       addedDate,

@@ -55,7 +55,7 @@ struct PDFReaderView: View {
             // Bottom page scrub bar
             bottomPageScrubBar
 
-            // Floating "Ask AI" button when text is selected
+            // Floating "Ask AI" capsule when text is selected
             if showAskAIButton, let text = selectedText, !text.isEmpty {
                 VStack {
                     Spacer()
@@ -63,27 +63,35 @@ struct PDFReaderView: View {
                         Spacer()
                         Button {
                             onAskAI(text)
+                            // Clear selection state after tapping
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showAskAIButton = false
+                            }
                         } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "brain.head.profile")
-                                    .font(.system(size: 16, weight: .semibold))
+                            HStack(spacing: 7) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 14, weight: .semibold))
                                 Text("Ask AI")
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 12)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
                             .background(
                                 Capsule()
                                     .fill(SkimTheme.accent)
-                                    .shadow(color: SkimTheme.accent.opacity(0.5), radius: 12, x: 0, y: 4)
+                                    .shadow(color: SkimTheme.accent.opacity(0.35), radius: 10, x: 0, y: 4)
                             )
                         }
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                        ))
                         .padding(.trailing, SkimTheme.paddingLarge)
                         .padding(.bottom, 80)
                     }
                 }
+                .animation(.spring(response: 0.35, dampingFraction: 0.75), value: showAskAIButton)
             }
         }
         .opacity(viewOpacity)
@@ -555,9 +563,11 @@ struct PDFReaderView: View {
     // MARK: - Helpers
 
     private func loadPDF() {
-        guard let urlString = paper.pdfURL, let url = URL(string: urlString) else {
+        // Use the backend's PDF serving endpoint, which handles both uploaded and external PDFs
+        let pdfEndpoint = "\(APIService.baseURL)/papers/\(paper.id)/pdf"
+        guard let url = URL(string: pdfEndpoint) else {
             isLoading = false
-            errorMessage = "No PDF URL available for this paper."
+            errorMessage = "Invalid PDF URL."
             return
         }
 
@@ -566,7 +576,12 @@ struct PDFReaderView: View {
 
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                var request = URLRequest(url: url)
+                // Add auth token for the backend
+                if let token = KeychainService.getToken() {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let (data, response) = try await URLSession.shared.data(for: request)
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
@@ -679,6 +694,8 @@ private struct PDFKitRepresentable: UIViewRepresentable {
         pdfView.autoScales = true
         pdfView.backgroundColor = UIColor(SkimTheme.background)
         pdfView.pageShadowsEnabled = false
+        // Use warm orange for text selection highlights instead of default blue
+        pdfView.tintColor = UIColor(SkimTheme.inputTint)
 
         // Set initial page count
         DispatchQueue.main.async {

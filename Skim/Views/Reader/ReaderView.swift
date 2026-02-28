@@ -7,7 +7,7 @@ struct ReaderView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedTab: ReaderTab = .summary
+    @State private var selectedTab: ReaderTab = .fullPaper
     @State private var fullPaper: Paper?
     @State private var annotations: [Annotation] = []
     @State private var isLoadingPaper = false
@@ -18,10 +18,10 @@ struct ReaderView: View {
     @State private var viewOpacity: Double = 0
 
     private enum ReaderTab: String, CaseIterable {
-        case summary = "Summary"
-        case fullPaper = "Full Paper"
+        case fullPaper = "Read"
         case pdf = "PDF"
-        case annotations = "Annotations"
+        case summary = "Summary"
+        case annotations = "Notes"
     }
 
     private var displayPaper: Paper {
@@ -41,14 +41,21 @@ struct ReaderView: View {
                 navigationBar
 
                 if selectedTab == .pdf {
-                    // PDF tab: show tab selector + full-screen PDF (no scroll view wrapper)
                     tabSelector
                         .padding(.horizontal, SkimTheme.paddingMedium)
                         .padding(.vertical, SkimTheme.paddingSmall)
 
-                    pdfTabContent
+                    PDFReaderView(
+                        paper: displayPaper,
+                        onAskAI: { text in
+                            selectedTextForAI = text
+                            showAISheet = true
+                        },
+                        onCaptureRegion: { _ in },
+                        showNavigationBar: false
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    // Other tabs: scrollable content with swipe gesture between non-PDF tabs
                     scrollContent
                 }
             }
@@ -254,29 +261,22 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var nonPdfTabContent: some View {
-        switch selectedTab {
-        case .summary:
-            summaryTabContent
-                .transition(.asymmetric(
-                    insertion: .move(edge: .leading).combined(with: .opacity),
-                    removal: .move(edge: .trailing).combined(with: .opacity)
-                ))
-        case .fullPaper:
-            fullPaperTabContent
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-        case .pdf:
-            // PDF is handled outside the ScrollView; this should not render
-            EmptyView()
-        case .annotations:
-            annotationsTabContent
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
+        Group {
+            switch selectedTab {
+            case .fullPaper:
+                fullPaperTabContent
+                    .transition(.opacity)
+            case .pdf:
+                EmptyView() // PDF is rendered outside ScrollView
+            case .summary:
+                summaryTabContent
+                    .transition(.opacity)
+            case .annotations:
+                annotationsTabContent
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: selectedTab)
     }
 
     // MARK: - Summary Tab
@@ -461,7 +461,31 @@ struct ReaderView: View {
             } else if let error = loadError {
                 paperErrorView(error)
             } else {
-                paperLoadingView
+                // No markdown content available
+                VStack(spacing: SkimTheme.paddingMedium) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 36))
+                        .foregroundColor(SkimTheme.textTertiary)
+
+                    Text("Paper text not available")
+                        .font(SkimTheme.subheadingFont)
+                        .foregroundColor(SkimTheme.textSecondary)
+
+                    Text("The text couldn't be extracted from this paper")
+                        .font(SkimTheme.captionFont)
+                        .foregroundColor(SkimTheme.textTertiary)
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        loadFullPaper()
+                    } label: {
+                        Text("Retry")
+                    }
+                    .buttonStyle(SkimButtonStyle())
+                    .padding(.top, SkimTheme.paddingSmall)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 60)
             }
         }
     }
@@ -609,39 +633,6 @@ struct ReaderView: View {
         .textSelection(.enabled)
     }
 
-    // MARK: - PDF Tab (rendered outside ScrollView to avoid gesture conflicts)
-
-    @ViewBuilder
-    private var pdfTabContent: some View {
-        if displayPaper.pdfURL != nil {
-            PDFReaderView(
-                paper: displayPaper,
-                onAskAI: { text in
-                    selectedTextForAI = text
-                    showAISheet = true
-                },
-                onCaptureRegion: { _ in },
-                showNavigationBar: false
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            VStack(spacing: SkimTheme.paddingMedium) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 36))
-                    .foregroundColor(SkimTheme.textTertiary)
-
-                Text("No PDF available")
-                    .font(SkimTheme.subheadingFont)
-                    .foregroundColor(SkimTheme.textSecondary)
-
-                Text("This paper does not have a PDF link")
-                    .font(SkimTheme.captionFont)
-                    .foregroundColor(SkimTheme.textTertiary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
     // MARK: - Annotations Tab
 
     private var annotationsTabContent: some View {
@@ -787,7 +778,10 @@ struct ReaderView: View {
     // MARK: - Data Loading
 
     private func loadFullPaper() {
-        guard let token = appState.currentUser?.token else { return }
+        guard let token = appState.currentUser?.token else {
+            loadError = "Not authenticated"
+            return
+        }
         isLoadingPaper = true
         loadError = nil
 
@@ -799,6 +793,7 @@ struct ReaderView: View {
                     isLoadingPaper = false
                 }
             } catch {
+                print("loadFullPaper error for \(paper.id):", error)
                 withAnimation {
                     loadError = error.localizedDescription
                     isLoadingPaper = false
@@ -844,6 +839,7 @@ struct SelectableTextView: UIViewRepresentable {
         textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
+        textView.tintColor = UIColor(SkimTheme.inputTint)
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []

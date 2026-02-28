@@ -96,6 +96,7 @@ struct AIAssistantSheet: View {
                     // Suggestions (show when no messages yet)
                     if showSuggestions && messages.isEmpty {
                         suggestionsSection
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
                     // Conversation
@@ -112,6 +113,7 @@ struct AIAssistantSheet: View {
                 }
                 .padding(.horizontal, SkimTheme.paddingMedium)
                 .padding(.vertical, SkimTheme.paddingMedium)
+                .animation(.easeInOut(duration: 0.3), value: showSuggestions)
             }
             .onChange(of: messages.count) {
                 withAnimation(.easeOut(duration: 0.3)) {
@@ -206,7 +208,7 @@ struct AIAssistantSheet: View {
                             )
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SuggestionButtonStyle())
             }
         }
     }
@@ -428,6 +430,17 @@ struct AIAssistantSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Suggestion Button Style
+
+private struct SuggestionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
