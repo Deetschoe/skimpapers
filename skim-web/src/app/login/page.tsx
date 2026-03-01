@@ -57,6 +57,11 @@ export default function LoginPage() {
   function handleAccessCodeSubmit(e: FormEvent) {
     e.preventDefault();
     if (!accessCodeInput.trim()) return;
+    if (accessCodeInput.trim().toLowerCase() !== 'dieter') {
+      setError('Invalid invite code');
+      return;
+    }
+    setError('');
     setHasAccessCode(true);
     goTo('email');
   }
