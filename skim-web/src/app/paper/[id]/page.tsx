@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Paper, getToken, get, post } from '@/lib/api';
+import { Paper, getToken, get, post, fetchBlob } from '@/lib/api';
 
 const colors = {
   background: '#FAF9F5',
@@ -30,6 +30,7 @@ export default function PaperPage() {
 
   const [paper, setPaper] = useState<Paper | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -52,6 +53,15 @@ export default function PaperPage() {
       if (data.summary) {
         setMessages([{ role: 'assistant', content: data.summary }]);
       }
+      // Fetch PDF with auth token and create blob URL
+      try {
+        const blob = await fetchBlob(`/papers/${paperId}/pdf`);
+        const url = URL.createObjectURL(blob);
+        setPdfBlobUrl(url);
+      } catch {
+        // PDF may not be available for all papers
+        console.warn('Could not load PDF for paper', paperId);
+      }
     } catch {
       // API client handles 401
     } finally {
@@ -63,7 +73,11 @@ export default function PaperPage() {
     if (getToken() && paperId) {
       fetchPaper();
     }
-  }, [paperId, fetchPaper]);
+    return () => {
+      // Clean up blob URL on unmount
+      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    };
+  }, [paperId, fetchPaper]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll chat to bottom when messages change
   useEffect(() => {
@@ -130,8 +144,6 @@ export default function PaperPage() {
       </div>
     );
   }
-
-  const pdfSrc = `/api/papers/${paperId}/pdf`;
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: colors.background }}>
@@ -211,15 +223,28 @@ export default function PaperPage() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left: PDF viewer */}
         <div style={{ flex: '1 1 60%', minWidth: 0, background: '#525659' }}>
-          <iframe
-            src={pdfSrc}
-            style={{
-              width: '100%',
+          {pdfBlobUrl ? (
+            <iframe
+              src={pdfBlobUrl}
+              style={{
+                width: '100%',
+                height: '100%',
+                border: 'none',
+              }}
+              title="PDF viewer"
+            />
+          ) : (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               height: '100%',
-              border: 'none',
-            }}
-            title="PDF viewer"
-          />
+              color: '#999',
+              fontSize: '14px',
+            }}>
+              {loading ? 'Loading PDF...' : 'PDF not available'}
+            </div>
+          )}
         </div>
 
         {/* Right: Chat panel */}

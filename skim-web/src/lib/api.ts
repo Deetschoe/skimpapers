@@ -235,5 +235,33 @@ export async function uploadFile<T = unknown>(
   return res.json() as Promise<T>;
 }
 
-const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del, uploadFile };
+// ── Blob Fetch (for PDFs with auth) ─────────────────────────────────────────
+
+export async function fetchBlob(path: string): Promise<Blob> {
+  const url = `${BASE_URL}${path}`;
+  const token = getToken();
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, { method: 'GET', headers });
+
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+    }
+    throw new Error('Unauthorized');
+  }
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch file (status ${res.status})`);
+  }
+
+  return res.blob();
+}
+
+const API = { getToken, setToken, clearToken, getUser, setUser, get, post, put, del, uploadFile, fetchBlob };
 export default API;
