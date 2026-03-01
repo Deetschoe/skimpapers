@@ -48,9 +48,10 @@ router.post('/request-code', async (req, res) => {
     const normalizedEmail = email.toLowerCase();
     const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
 
-    // New users must provide the valid access code
-    if (!existingUser) {
-      if (!accessCode || accessCode.toLowerCase() !== VALID_ACCESS_CODE) {
+    // New users must provide the valid access code (web only — iOS skips this)
+    const platform = req.headers['x-platform'];
+    if (!existingUser && platform !== 'ios') {
+      if (!accessCode || accessCode.toLowerCase() !== VALID_ACCESS_CODE.toLowerCase()) {
         return res.status(401).json({ error: 'Invalid access code' });
       }
     }

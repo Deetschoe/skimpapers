@@ -322,15 +322,23 @@ struct AIAssistantSheet: View {
 
     private var inputBar: some View {
         HStack(spacing: SkimTheme.paddingSmall) {
-            TextField("Ask about this paper...", text: $currentQuestion, axis: .vertical)
-                .font(SkimTheme.bodyFont)
-                .foregroundColor(SkimTheme.textPrimary)
-                .tint(SkimTheme.inputTint)
-                .lineLimit(1...4)
-                .focused($isTextFieldFocused)
-                .onSubmit {
-                    sendQuestion()
+            ZStack(alignment: .leading) {
+                if currentQuestion.isEmpty {
+                    Text("Ask about this paper...")
+                        .font(SkimTheme.bodyFont)
+                        .foregroundStyle(SkimTheme.inputTint)
+                        .allowsHitTesting(false)
                 }
+                TextField("", text: $currentQuestion, axis: .vertical)
+                    .font(SkimTheme.bodyFont)
+                    .foregroundColor(.white)
+                    .tint(SkimTheme.inputTint)
+                    .lineLimit(1...4)
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        sendQuestion()
+                    }
+            }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(

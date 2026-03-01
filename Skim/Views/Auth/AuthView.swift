@@ -13,7 +13,7 @@ enum AuthStep {
 struct AuthView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var currentStep: AuthStep = .accessCode
+    @State private var currentStep: AuthStep = .emailEntry
     @State private var email = ""
     @State private var accessCodeText = ""
     @State private var pinDigits = ""
@@ -74,10 +74,8 @@ struct AuthView: View {
         }
         .opacity(viewOpacity)
         .onAppear {
-            // Skip access code if already entered before
-            if UserDefaults.standard.bool(forKey: Self.accessCodeKey) {
-                currentStep = .emailEntry
-            }
+            // iOS always starts at email (no access code needed)
+            currentStep = .emailEntry
             withAnimation(.easeOut(duration: 0.5)) {
                 viewOpacity = 1.0
             }
@@ -112,17 +110,25 @@ struct AuthView: View {
                         .foregroundColor(focusedField == .accessCode ? SkimTheme.accent : SkimTheme.textTertiary)
                         .frame(width: 20)
 
-                    TextField("", text: $accessCodeText, prompt: Text("Enter invite code").foregroundColor(SkimTheme.textTertiary))
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(SkimTheme.textPrimary)
-                        .tint(SkimTheme.inputTint)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .accessCode)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            handleAccessCodeSubmit()
+                    ZStack(alignment: .leading) {
+                        if accessCodeText.isEmpty {
+                            Text("Enter invite code")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundStyle(SkimTheme.inputTint)
+                                .allowsHitTesting(false)
                         }
+                        TextField("", text: $accessCodeText)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(.white)
+                            .tint(SkimTheme.inputTint)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .accessCode)
+                            .submitLabel(.go)
+                            .onSubmit {
+                                handleAccessCodeSubmit()
+                            }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -185,19 +191,27 @@ struct AuthView: View {
                         .foregroundColor(focusedField == .email ? SkimTheme.accent : SkimTheme.textTertiary)
                         .frame(width: 20)
 
-                    TextField("", text: $email, prompt: Text("you@example.com").foregroundColor(SkimTheme.textTertiary))
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(SkimTheme.textPrimary)
-                        .tint(SkimTheme.inputTint)
-                        .textContentType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.emailAddress)
-                        .focused($focusedField, equals: .email)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            handleEmailContinue()
+                    ZStack(alignment: .leading) {
+                        if email.isEmpty {
+                            Text("dieter@skimpapers.org")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundStyle(SkimTheme.inputTint)
+                                .allowsHitTesting(false)
                         }
+                        TextField("", text: $email)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(.white)
+                            .tint(SkimTheme.inputTint)
+                            .textContentType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                            .focused($focusedField, equals: .email)
+                            .submitLabel(.go)
+                            .onSubmit {
+                                handleEmailContinue()
+                            }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -384,13 +398,8 @@ struct AuthView: View {
             do {
                 let exists = try await APIService.shared.checkEmail(email: email)
                 userExists = exists
-                if exists {
-                    // Existing user: just send OTP
-                    try await APIService.shared.requestCode(email: email)
-                } else {
-                    // New user: send OTP with access code
-                    try await APIService.shared.requestCode(email: email, accessCode: accessCodeText)
-                }
+                // iOS sends X-Platform header — backend skips access code check
+                try await APIService.shared.requestCode(email: email)
                 isLoading = false
                 goToStep(.pinVerify)
             } catch {
@@ -421,11 +430,7 @@ struct AuthView: View {
 
         Task {
             do {
-                if userExists {
-                    try await APIService.shared.requestCode(email: email)
-                } else {
-                    try await APIService.shared.requestCode(email: email, accessCode: accessCodeText)
-                }
+                try await APIService.shared.requestCode(email: email)
                 codeSentConfirmation = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     codeSentConfirmation = false

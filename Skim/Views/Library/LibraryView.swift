@@ -89,12 +89,20 @@ struct LibraryView: View {
                 .foregroundColor(SkimTheme.textTertiary)
                 .font(.system(size: 16))
 
-            TextField("Search papers, authors, tags...", text: $appState.searchText)
-                .font(SkimTheme.bodyFont)
-                .foregroundColor(SkimTheme.textPrimary)
-                .tint(SkimTheme.inputTint)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+            ZStack(alignment: .leading) {
+                if appState.searchText.isEmpty {
+                    Text("Search papers, authors, tags...")
+                        .font(SkimTheme.bodyFont)
+                        .foregroundStyle(SkimTheme.inputTint)
+                        .allowsHitTesting(false)
+                }
+                TextField("", text: $appState.searchText)
+                    .font(SkimTheme.bodyFont)
+                    .foregroundColor(.white)
+                    .tint(SkimTheme.inputTint)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            }
 
             if !appState.searchText.isEmpty {
                 Button {

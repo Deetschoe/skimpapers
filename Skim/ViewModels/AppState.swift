@@ -71,8 +71,10 @@ class AppState: ObservableObject {
         Task {
             try? await Task.sleep(for: .seconds(1.8))
             if let token = KeychainService.getToken() {
+                print("[Boot] Found saved token, validating...")
                 do {
                     let user = try await api.validateToken(token)
+                    print("[Boot] Token valid, user:", user.email)
                     self.currentUser = user
                     await loadPapers()
                     await loadCollections()
@@ -80,12 +82,14 @@ class AppState: ObservableObject {
                         self.currentScreen = .home
                     }
                 } catch {
+                    print("[Boot] Token validation failed:", error)
                     KeychainService.deleteToken()
                     withAnimation(.easeInOut(duration: 0.5)) {
                         self.currentScreen = .auth
                     }
                 }
             } else {
+                print("[Boot] No saved token, showing auth")
                 withAnimation(.easeInOut(duration: 0.5)) {
                     self.currentScreen = .auth
                 }

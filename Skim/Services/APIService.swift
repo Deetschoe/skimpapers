@@ -33,8 +33,8 @@ final class APIService {
             body["accessCode"] = code
         }
         let request = try buildRequest(path: "/auth/request-code", method: "POST", body: body)
-        let (_, response) = try await session.data(for: request)
-        try validateResponse(response)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     func verifyCode(email: String, code: String) async throws -> SkimUser {
@@ -78,8 +78,8 @@ final class APIService {
 
     func deletePaper(id: String, token: String) async throws {
         let request = try authorizedRequest(path: "/papers/\(id)", method: "DELETE", token: token)
-        let (_, response) = try await session.data(for: request)
-        try validateResponse(response)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     func searchPapers(query: String, token: String) async throws -> [Paper] {
@@ -114,7 +114,7 @@ final class APIService {
         let uploadSession = URLSession(configuration: config)
 
         let (responseData, response) = try await uploadSession.data(for: request)
-        try validateResponse(response)
+        try validateResponse(response, data: responseData)
         return try decoder.decode(Paper.self, from: responseData)
     }
 
@@ -130,7 +130,7 @@ final class APIService {
             rawBody: jsonData
         )
         let (data, response) = try await session.data(for: request)
-        try validateResponse(response)
+        try validateResponse(response, data: data)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SkimError.serverError("Failed to decode chat response")
         }
@@ -190,8 +190,8 @@ final class APIService {
 
     func deleteCollection(id: String, token: String) async throws {
         let request = try authorizedRequest(path: "/collections/\(id)", method: "DELETE", token: token)
-        let (_, response) = try await session.data(for: request)
-        try validateResponse(response)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     func getCollectionPapers(collectionId: String, token: String) async throws -> [Paper] {
@@ -212,8 +212,8 @@ final class APIService {
             token: token,
             body: body
         )
-        let (_, response) = try await session.data(for: request)
-        try validateResponse(response)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     func removePaperFromCollection(collectionId: String, paperId: String, token: String) async throws {
@@ -222,8 +222,8 @@ final class APIService {
             method: "DELETE",
             token: token
         )
-        let (_, response) = try await session.data(for: request)
-        try validateResponse(response)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
     }
 
     // MARK: - Usage
@@ -248,6 +248,7 @@ final class APIService {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("ios", forHTTPHeaderField: "X-Platform")
         if let body {
             request.httpBody = try encoder.encode(AnyEncodable(body))
         }
@@ -275,27 +276,38 @@ final class APIService {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            print("Network error:", error)
             throw SkimError.networkError
         }
-        try validateResponse(response)
+        try validateResponse(response, data: data)
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
             print("Decode error:", error)
+            print("Raw response:", String(data: data, encoding: .utf8) ?? "nil")
             throw SkimError.serverError("Failed to decode response")
         }
     }
 
-    private func validateResponse(_ response: URLResponse) throws {
+    private func validateResponse(_ response: URLResponse, data: Data? = nil) throws {
         guard let http = response as? HTTPURLResponse else {
             throw SkimError.networkError
         }
-        switch http.statusCode {
-        case 200...299:
-            return
-        case 401:
-            throw SkimError.notAuthenticated
-        default:
+        guard (200...299).contains(http.statusCode) else {
+            // Try to extract the backend's error message
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = json["error"] as? String {
+                print("API error (\(http.statusCode)):", message)
+                if http.statusCode == 401 {
+                    throw SkimError.serverError(message)
+                }
+                throw SkimError.serverError(message)
+            }
+            print("API error: status \(http.statusCode)")
+            if http.statusCode == 401 {
+                throw SkimError.notAuthenticated
+            }
             throw SkimError.serverError("Server returned status \(http.statusCode)")
         }
     }

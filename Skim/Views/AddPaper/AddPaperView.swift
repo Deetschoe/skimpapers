@@ -96,13 +96,21 @@ struct AddPaperView: View {
                             .foregroundColor(SkimTheme.textTertiary)
                             .font(.system(size: 16))
 
-                        TextField("https://arxiv.org/abs/...", text: $url)
-                            .font(SkimTheme.bodyFont)
-                            .foregroundColor(SkimTheme.textPrimary)
-                            .tint(SkimTheme.inputTint)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.URL)
+                        ZStack(alignment: .leading) {
+                            if url.isEmpty {
+                                Text("https://arxiv.org/abs/...")
+                                    .font(SkimTheme.bodyFont)
+                                    .foregroundStyle(SkimTheme.inputTint)
+                                    .allowsHitTesting(false)
+                            }
+                            TextField("", text: $url)
+                                .font(SkimTheme.bodyFont)
+                                .foregroundColor(.white)
+                                .tint(SkimTheme.inputTint)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
+                        }
 
                         Button {
                             if let clipboard = UIPasteboard.general.string {
