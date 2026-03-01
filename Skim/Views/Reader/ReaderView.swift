@@ -7,7 +7,7 @@ struct ReaderView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedTab: ReaderTab = .fullPaper
+    @State private var selectedTab: ReaderTab = .pdf
     @State private var fullPaper: Paper?
     @State private var annotations: [Annotation] = []
     @State private var isLoadingPaper = false
@@ -16,9 +16,9 @@ struct ReaderView: View {
     @State private var showAISheet = false
     @State private var selectedTextForAI: String?
     @State private var viewOpacity: Double = 0
+    @State private var showTabBar = true
 
     private enum ReaderTab: String, CaseIterable {
-        case fullPaper = "Read"
         case pdf = "PDF"
         case summary = "Summary"
         case annotations = "Notes"
@@ -33,35 +33,43 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack(alignment: .bottom) {
             SkimTheme.background
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // Minimal navigation bar
                 navigationBar
 
-                if selectedTab == .pdf {
-                    tabSelector
-                        .padding(.horizontal, SkimTheme.paddingMedium)
-                        .padding(.vertical, SkimTheme.paddingSmall)
-
-                    PDFReaderView(
-                        paper: displayPaper,
-                        onAskAI: { text in
-                            selectedTextForAI = text
-                            showAISheet = true
-                        },
-                        onCaptureRegion: { _ in },
-                        showNavigationBar: false
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
+                // Content area
+                switch selectedTab {
+                case .pdf:
+                    pdfTabContent
+                case .summary:
+                    scrollContent
+                case .annotations:
                     scrollContent
                 }
             }
 
-            if selectedTab != .pdf {
-                floatingAIButton
+            // Floating tab selector overlay at the bottom
+            VStack {
+                Spacer()
+
+                HStack(spacing: 0) {
+                    // Floating tab bar
+                    floatingTabBar
+                        .padding(.leading, SkimTheme.paddingMedium)
+
+                    Spacer()
+
+                    // Floating AI button inline with tabs
+                    if selectedTab != .pdf {
+                        floatingAIButton
+                            .padding(.trailing, SkimTheme.paddingMedium)
+                    }
+                }
+                .padding(.bottom, 12)
             }
         }
         .opacity(viewOpacity)
@@ -84,65 +92,60 @@ struct ReaderView: View {
         .navigationBarHidden(true)
     }
 
-    // MARK: - Tab Swipe Gesture
-
-    private var tabSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 50, coordinateSpace: .local)
-            .onEnded { value in
-                // Only trigger for mostly-horizontal swipes
-                guard abs(value.translation.width) > abs(value.translation.height) * 1.5 else { return }
-
-                let allTabs = ReaderTab.allCases
-                guard let currentIndex = allTabs.firstIndex(of: selectedTab) else { return }
-
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    if value.translation.width < -50, currentIndex < allTabs.count - 1 {
-                        selectedTab = allTabs[currentIndex + 1]
-                    } else if value.translation.width > 50, currentIndex > 0 {
-                        selectedTab = allTabs[currentIndex - 1]
-                    }
-                }
-            }
-    }
-
     // MARK: - Navigation Bar
 
     private var navigationBar: some View {
-        HStack(spacing: SkimTheme.paddingMedium) {
+        HStack(spacing: SkimTheme.paddingSmall) {
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(SkimTheme.textPrimary)
-                    .frame(width: 40, height: 40)
-                    .background(SkimTheme.surfaceElevated)
+                    .frame(width: 36, height: 36)
+                    .background(SkimTheme.surfaceElevated.opacity(0.9))
                     .clipShape(Circle())
             }
 
             Text(paper.title)
                 .font(SkimTheme.captionFont)
-                .foregroundColor(SkimTheme.textSecondary)
+                .foregroundColor(SkimTheme.textTertiary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
 
             if let urlString = paper.pdfURL ?? URL(string: paper.url).map({ $0.absoluteString }) {
                 ShareLink(item: urlString) {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(SkimTheme.textPrimary)
-                        .frame(width: 40, height: 40)
-                        .background(SkimTheme.surfaceElevated)
+                        .frame(width: 36, height: 36)
+                        .background(SkimTheme.surfaceElevated.opacity(0.9))
                         .clipShape(Circle())
                 }
             }
         }
         .padding(.horizontal, SkimTheme.paddingMedium)
-        .padding(.vertical, SkimTheme.paddingSmall)
+        .padding(.vertical, 6)
         .background(SkimTheme.background)
     }
 
-    // MARK: - Scroll Content
+    // MARK: - PDF Tab Content (full screen)
+
+    private var pdfTabContent: some View {
+        PDFReaderView(
+            paper: displayPaper,
+            onAskAI: { text in
+                selectedTextForAI = text
+                showAISheet = true
+            },
+            onCaptureRegion: { _ in },
+            showNavigationBar: false
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    // MARK: - Scroll Content (Summary / Notes)
 
     private var scrollContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -150,15 +153,11 @@ struct ReaderView: View {
                 paperMetadataHeader
                     .padding(.bottom, SkimTheme.paddingLarge)
 
-                tabSelector
-                    .padding(.bottom, SkimTheme.paddingMedium)
-
                 nonPdfTabContent
-                    .padding(.bottom, 100)
+                    .padding(.bottom, 120) // space for floating tab bar
             }
             .padding(.horizontal, SkimTheme.paddingMedium)
         }
-        .simultaneousGesture(tabSwipeGesture)
     }
 
     // MARK: - Metadata Header
@@ -228,9 +227,9 @@ struct ReaderView: View {
         .padding(.top, SkimTheme.paddingSmall)
     }
 
-    // MARK: - Tab Selector
+    // MARK: - Floating Tab Bar
 
-    private var tabSelector: some View {
+    private var floatingTabBar: some View {
         HStack(spacing: 4) {
             ForEach(ReaderTab.allCases, id: \.self) { tab in
                 Button {
@@ -245,15 +244,20 @@ struct ReaderView: View {
                         .padding(.vertical, 9)
                         .background(
                             Capsule()
-                                .fill(selectedTab == tab ? SkimTheme.accent : SkimTheme.surface)
+                                .fill(selectedTab == tab ? SkimTheme.accent : Color.clear)
                         )
                 }
             }
         }
-        .padding(3)
+        .padding(4)
         .background(
             Capsule()
-                .fill(SkimTheme.surface)
+                .fill(SkimTheme.surfaceElevated.opacity(0.95))
+                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+                .overlay(
+                    Capsule()
+                        .stroke(SkimTheme.border.opacity(0.5), lineWidth: 0.5)
+                )
         )
     }
 
@@ -263,11 +267,8 @@ struct ReaderView: View {
     private var nonPdfTabContent: some View {
         Group {
             switch selectedTab {
-            case .fullPaper:
-                fullPaperTabContent
-                    .transition(.opacity)
             case .pdf:
-                EmptyView() // PDF is rendered outside ScrollView
+                EmptyView()
             case .summary:
                 summaryTabContent
                     .transition(.opacity)
@@ -450,189 +451,6 @@ struct ReaderView: View {
         )
     }
 
-    // MARK: - Full Paper Tab
-
-    private var fullPaperTabContent: some View {
-        VStack(spacing: 0) {
-            if isLoadingPaper {
-                paperLoadingView
-            } else if let content = markdownContent, !content.isEmpty {
-                markdownContentView(content)
-            } else if let error = loadError {
-                paperErrorView(error)
-            } else {
-                // No markdown content available
-                VStack(spacing: SkimTheme.paddingMedium) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 36))
-                        .foregroundColor(SkimTheme.textTertiary)
-
-                    Text("Paper text not available")
-                        .font(SkimTheme.subheadingFont)
-                        .foregroundColor(SkimTheme.textSecondary)
-
-                    Text("The text couldn't be extracted from this paper")
-                        .font(SkimTheme.captionFont)
-                        .foregroundColor(SkimTheme.textTertiary)
-                        .multilineTextAlignment(.center)
-
-                    Button {
-                        loadFullPaper()
-                    } label: {
-                        Text("Retry")
-                    }
-                    .buttonStyle(SkimButtonStyle())
-                    .padding(.top, SkimTheme.paddingSmall)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 60)
-            }
-        }
-    }
-
-    private var paperLoadingView: some View {
-        VStack(spacing: SkimTheme.paddingMedium) {
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: SkimTheme.accent))
-                .scaleEffect(1.2)
-
-            Text("Processing paper...")
-                .font(SkimTheme.subheadingFont)
-                .foregroundColor(SkimTheme.textSecondary)
-
-            Text("Extracting and formatting content")
-                .font(SkimTheme.captionFont)
-                .foregroundColor(SkimTheme.textTertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 80)
-    }
-
-    private func paperErrorView(_ error: String) -> some View {
-        VStack(spacing: SkimTheme.paddingMedium) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 32))
-                .foregroundColor(SkimTheme.destructive)
-
-            Text("Failed to load paper")
-                .font(SkimTheme.subheadingFont)
-                .foregroundColor(SkimTheme.textPrimary)
-
-            Text(error)
-                .font(SkimTheme.captionFont)
-                .foregroundColor(SkimTheme.textSecondary)
-                .multilineTextAlignment(.center)
-
-            Button {
-                loadFullPaper()
-            } label: {
-                Text("Retry")
-            }
-            .buttonStyle(SkimButtonStyle())
-            .padding(.top, SkimTheme.paddingSmall)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
-    }
-
-    @ViewBuilder
-    private func markdownContentView(_ content: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Reading progress header
-            HStack(spacing: 8) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 13))
-                    .foregroundColor(SkimTheme.accent)
-                Text("Full Paper")
-                    .font(SkimTheme.captionFont)
-                    .foregroundColor(SkimTheme.textSecondary)
-
-                Spacer()
-
-                Text("\(content.components(separatedBy: .whitespaces).count) words")
-                    .font(SkimTheme.captionFont)
-                    .foregroundColor(SkimTheme.textTertiary)
-            }
-            .padding(.bottom, SkimTheme.paddingMedium)
-
-            // Selectable text view with "Ask AI" menu support
-            SelectableTextView(
-                content: content,
-                onAskAI: { text in
-                    selectedTextForAI = text
-                    showAISheet = true
-                }
-            )
-        }
-        .padding(SkimTheme.paddingMedium)
-        .background(
-            RoundedRectangle(cornerRadius: SkimTheme.cornerRadius)
-                .fill(SkimTheme.surface)
-        )
-    }
-
-    @ViewBuilder
-    private func markdownSections(_ content: String) -> some View {
-        let lines = content.components(separatedBy: .newlines)
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                if line.hasPrefix("# ") {
-                    Text(line.dropFirst(2))
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(SkimTheme.textPrimary)
-                        .padding(.top, 16)
-                        .padding(.bottom, 4)
-                } else if line.hasPrefix("## ") {
-                    Text(line.dropFirst(3))
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(SkimTheme.textPrimary)
-                        .padding(.top, 14)
-                        .padding(.bottom, 2)
-                } else if line.hasPrefix("### ") {
-                    Text(line.dropFirst(4))
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundColor(SkimTheme.accent)
-                        .padding(.top, 10)
-                } else if line.hasPrefix("```") {
-                    // Code fence marker: skip rendering the delimiter itself
-                    EmptyView()
-                } else if line.hasPrefix("    ") || line.hasPrefix("\t") {
-                    Text(line)
-                        .font(SkimTheme.monoFont)
-                        .foregroundColor(SkimTheme.accent.opacity(0.85))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(SkimTheme.background)
-                        )
-                } else if line.hasPrefix("> ") {
-                    HStack(alignment: .top, spacing: 8) {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(SkimTheme.accentSecondary)
-                            .frame(width: 3)
-                        Text(line.dropFirst(2))
-                            .font(SkimTheme.bodyFont)
-                            .foregroundColor(SkimTheme.textSecondary)
-                            .italic()
-                    }
-                    .padding(.vertical, 4)
-                } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Spacer()
-                        .frame(height: 8)
-                } else {
-                    Text(line)
-                        .font(SkimTheme.bodyFont)
-                        .foregroundColor(SkimTheme.textPrimary)
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .textSelection(.enabled)
-    }
-
     // MARK: - Annotations Tab
 
     private var annotationsTabContent: some View {
@@ -662,7 +480,7 @@ struct ReaderView: View {
                 .font(SkimTheme.subheadingFont)
                 .foregroundColor(SkimTheme.textSecondary)
 
-            Text("Use the AI assistant to ask questions\nand save insights as annotations")
+            Text("Highlight text in the PDF and ask AI,\nor use the AI assistant to save insights")
                 .font(SkimTheme.captionFont)
                 .foregroundColor(SkimTheme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -763,16 +581,14 @@ struct ReaderView: View {
             ZStack {
                 Circle()
                     .fill(SkimTheme.accent)
-                    .frame(width: 56, height: 56)
+                    .frame(width: 48, height: 48)
                     .shadow(color: SkimTheme.accent.opacity(0.4), radius: 12, x: 0, y: 4)
 
                 Image(systemName: "brain.head.profile")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.white)
             }
         }
-        .padding(.trailing, SkimTheme.paddingLarge)
-        .padding(.bottom, SkimTheme.paddingLarge)
     }
 
     // MARK: - Data Loading
@@ -822,160 +638,6 @@ struct ReaderView: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Selectable Text View with Ask AI Menu
-
-/// A UITextView wrapper that supports text selection and adds a custom "Ask AI"
-/// action to the edit menu so users can highlight text and send it to the AI assistant.
-struct SelectableTextView: UIViewRepresentable {
-    let content: String
-    let onAskAI: (String) -> Void
-
-    func makeUIView(context: Context) -> UITextView {
-        let textView = AskAITextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isScrollEnabled = false
-        textView.backgroundColor = .clear
-        textView.tintColor = UIColor(SkimTheme.inputTint)
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.dataDetectorTypes = []
-        textView.onAskAI = { [onAskAI] selectedText in
-            onAskAI(selectedText)
-        }
-
-        updateTextContent(textView)
-        return textView
-    }
-
-    func updateUIView(_ textView: UITextView, context: Context) {
-        if let askAITextView = textView as? AskAITextView {
-            askAITextView.onAskAI = { [onAskAI] selectedText in
-                onAskAI(selectedText)
-            }
-        }
-        updateTextContent(textView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    private func updateTextContent(_ textView: UITextView) {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 6
-
-        let baseFont = UIFont.systemFont(ofSize: 15, weight: .regular)
-        let headingFont = UIFont.systemFont(ofSize: 20, weight: .bold)
-        let subheadingFont = UIFont.systemFont(ofSize: 17, weight: .semibold)
-        let subsubheadingFont = UIFont.systemFont(ofSize: 15, weight: .semibold)
-        let monoFont = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-
-        let textColor = UIColor(SkimTheme.textPrimary)
-        let secondaryColor = UIColor(SkimTheme.textSecondary)
-        let accentColor = UIColor(SkimTheme.accent)
-
-        let result = NSMutableAttributedString()
-        let lines = content.components(separatedBy: "\n")
-
-        for (index, line) in lines.enumerated() {
-            let isLast = index == lines.count - 1
-            let newline = isLast ? "" : "\n"
-
-            if line.hasPrefix("# ") {
-                let ps = NSMutableParagraphStyle()
-                ps.paragraphSpacingBefore = 16
-                ps.paragraphSpacing = 4
-                result.append(NSAttributedString(
-                    string: String(line.dropFirst(2)) + newline,
-                    attributes: [.font: headingFont, .foregroundColor: textColor, .paragraphStyle: ps]
-                ))
-            } else if line.hasPrefix("## ") {
-                let ps = NSMutableParagraphStyle()
-                ps.paragraphSpacingBefore = 14
-                ps.paragraphSpacing = 2
-                result.append(NSAttributedString(
-                    string: String(line.dropFirst(3)) + newline,
-                    attributes: [.font: subheadingFont, .foregroundColor: textColor, .paragraphStyle: ps]
-                ))
-            } else if line.hasPrefix("### ") {
-                let ps = NSMutableParagraphStyle()
-                ps.paragraphSpacingBefore = 10
-                result.append(NSAttributedString(
-                    string: String(line.dropFirst(4)) + newline,
-                    attributes: [.font: subsubheadingFont, .foregroundColor: accentColor, .paragraphStyle: ps]
-                ))
-            } else if line.hasPrefix("```") {
-                continue
-            } else if line.hasPrefix("    ") || line.hasPrefix("\t") {
-                result.append(NSAttributedString(
-                    string: line + newline,
-                    attributes: [.font: monoFont, .foregroundColor: accentColor.withAlphaComponent(0.85), .paragraphStyle: paragraphStyle]
-                ))
-            } else if line.hasPrefix("> ") {
-                let ps = NSMutableParagraphStyle()
-                ps.headIndent = 12
-                ps.firstLineHeadIndent = 12
-                ps.paragraphSpacing = 4
-                result.append(NSAttributedString(
-                    string: String(line.dropFirst(2)) + newline,
-                    attributes: [.font: UIFont.italicSystemFont(ofSize: 15), .foregroundColor: secondaryColor, .paragraphStyle: ps]
-                ))
-            } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                result.append(NSAttributedString(string: "\n", attributes: [.font: baseFont.withSize(8)]))
-            } else {
-                result.append(NSAttributedString(
-                    string: line + newline,
-                    attributes: [.font: baseFont, .foregroundColor: textColor, .paragraphStyle: paragraphStyle]
-                ))
-            }
-        }
-
-        textView.attributedText = result
-    }
-
-    class Coordinator: NSObject {}
-}
-
-/// Custom UITextView subclass that adds an "Ask AI" item to the text selection menu.
-class AskAITextView: UITextView {
-    var onAskAI: ((String) -> Void)?
-
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(askAIAction(_:)) {
-            return selectedRange.length > 0
-        }
-        return super.canPerformAction(action, withSender: sender)
-    }
-
-    override func buildMenu(with builder: any UIMenuBuilder) {
-        super.buildMenu(with: builder)
-
-        let askAIAction = UIAction(
-            title: "Ask AI",
-            image: UIImage(systemName: "brain.head.profile")
-        ) { [weak self] _ in
-            self?.performAskAI()
-        }
-
-        let menu = UIMenu(title: "", options: .displayInline, children: [askAIAction])
-        builder.insertChild(menu, atStartOfMenu: .standardEdit)
-    }
-
-    @objc private func askAIAction(_ sender: Any?) {
-        performAskAI()
-    }
-
-    private func performAskAI() {
-        guard selectedRange.length > 0,
-              let text = self.text,
-              let range = Range(selectedRange, in: text) else { return }
-        let selectedText = String(text[range])
-        guard !selectedText.isEmpty else { return }
-        onAskAI?(selectedText)
     }
 }
 

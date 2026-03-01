@@ -75,8 +75,8 @@ struct PDFReaderView: View {
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 11)
                             .background(
                                 Capsule()
                                     .fill(SkimTheme.accent)
@@ -88,7 +88,7 @@ struct PDFReaderView: View {
                             removal: .scale(scale: 0.8).combined(with: .opacity)
                         ))
                         .padding(.trailing, SkimTheme.paddingLarge)
-                        .padding(.bottom, 80)
+                        .padding(.bottom, 120) // above scrub bar + floating tab bar
                     }
                 }
                 .animation(.spring(response: 0.35, dampingFraction: 0.75), value: showAskAIButton)
